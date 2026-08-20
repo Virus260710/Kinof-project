@@ -10,10 +10,13 @@ import {
   Upload,
   LifeBuoy,
 } from "lucide-react";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 
 import Sidebar from "./components/Sidebar";
 import Toast from "./components/Toast";
 import Login from "./pages/Login";
+import OtpVerify from "./pages/OtpVerify";
+import Register from "./pages/Register";
 
 import UserHome from "./pages/user/UserHome";
 import BookRoom from "./pages/user/BookRoom";
@@ -43,10 +46,20 @@ const ADMIN_NAV = [
   { key: "helpcenter", label: "ศูนย์แก้ไขปัญหา", icon: LifeBuoy },
 ];
 
+function readStoredJson(storage, key) {
+  try {
+    return JSON.parse(storage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
-  const [stage, setStage] = useState("login");
-  const [role, setRole] = useState(null);
-  const [page, setPage] = useState("home");
+  const navigate = useNavigate();
+  const [auth, setAuth] = useState(() => readStoredJson(localStorage, "kinofAuth"));
+  const [pendingLogin, setPendingLogin] = useState(() => readStoredJson(sessionStorage, "kinofPendingLogin"));
+  const role = auth?.user?.userType === "admin" ? "admin" : "user";
+  const [page, setPage] = useState(() => (role === "admin" ? "dashboard" : "home"));
   const [toast, setToast] = useState("");
   const notify = (t) => setToast(t);
 
@@ -56,20 +69,35 @@ export default function App() {
   const [tickets, setTickets] = useState(initialTickets);
   const [blocked, setBlocked] = useState(initialBlocked);
 
-  const handleLogin = (r) => {
-    setRole(r);
-    setPage(r === "admin" ? "dashboard" : "home");
-    setStage("app");
+  const handleOtpRequired = (loginResult) => {
+    setPendingLogin(loginResult);
+    sessionStorage.setItem("kinofPendingLogin", JSON.stringify(loginResult));
+    navigate("/login/otp");
+  };
+
+  const handleVerified = (result) => {
+    const nextAuth = {
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: result.user,
+    };
+    localStorage.setItem("kinofAuth", JSON.stringify(nextAuth));
+    sessionStorage.removeItem("kinofPendingLogin");
+    setPendingLogin(null);
+    setAuth(nextAuth);
+    setPage(result.user.userType === "admin" ? "dashboard" : "home");
+    navigate("/");
   };
 
   const handleLogout = () => {
-    setStage("login");
-    setRole(null);
+    localStorage.removeItem("kinofAuth");
+    sessionStorage.removeItem("kinofPendingLogin");
+    setAuth(null);
+    setPendingLogin(null);
+    navigate("/login");
   };
 
-  if (stage === "login") return <Login onLogin={handleLogin} />;
-
-  return (
+  const appShell = (
     <div className="flex flex-col md:flex-row min-h-screen w-full" style={{ background: "#F4F5F8" }}>
       <Sidebar
         items={role === "admin" ? ADMIN_NAV : USER_NAV}
@@ -78,8 +106,7 @@ export default function App() {
         roleLabel={role === "admin" ? "ระบบดูแลและจองห้องแล็บ" : "ระบบจองห้องแล็บ"}
         onLogout={handleLogout}
       />
-      
-      {/* แก้ไขบรรทัดนี้: ให้ขยายเต็มพื้นที่จอ (Full-Width) */}
+
       <div className="flex-1 p-4 md:p-8 w-full min-w-0">
         {/* User Pages */}
         {role === "user" && page === "home" && (
@@ -125,5 +152,31 @@ export default function App() {
 
       <Toast text={toast} onDone={() => setToast("")} />
     </div>
+  );
+
+  return (
+    <Routes>
+      <Route
+        path="/login"
+        element={auth ? <Navigate to="/" replace /> : <Login onOtpRequired={handleOtpRequired} />}
+      />
+      <Route
+        path="/login/otp"
+        element={
+          auth ? (
+            <Navigate to="/" replace />
+          ) : pendingLogin ? (
+            <OtpVerify pendingLogin={pendingLogin} onVerified={handleVerified} />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/register"
+        element={auth ? <Navigate to="/" replace /> : <Register onOtpRequired={handleOtpRequired} />}
+      />
+      <Route path="*" element={auth ? appShell : <Navigate to="/login" replace />} />
+    </Routes>
   );
 }
