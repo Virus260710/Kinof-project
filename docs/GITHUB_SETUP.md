@@ -1,115 +1,96 @@
 # ทำต่อจาก GitHub — Kinof-project
 
-> Repo: https://github.com/Virus260710/Kinof-project.git
-
-## สรุป: **เอามาทำต่อได้** ✅
-
-Repo มี **Frontend React (mock UI)** อยู่แล้ว — ยังไม่มี Backend, Database, OTP, Face scan
+> Repo: https://github.com/Virus260710/Kinof-project.git  
+> **Workspace:** `C:\Users\User\Desktop\Kinof-project`
 
 ---
 
-## สิ่งที่มีใน Repo แล้ว
+## สถานะปัจจุบัน (อัปเดต 25 ส.ค. 2569)
+
+| สิ่ง | สถานะ |
+|------|--------|
+| Clone จาก GitHub | ✅ |
+| `docs/` แผนครบ | ✅ |
+| `.gitignore` | ✅ |
+| Branch `cursor/phase0-backend-email-otp` | ✅ (commit local `404dd7a`) |
+| Frontend `kinof-app/` | ✅ Login/Register/OTP เชื่อม API |
+| Backend `backend/Kinof.Api/` | ✅ Auth + Email OTP + DB 15 ตาราง |
+| Face scan / Kiosk | ⏳ Phase 2 |
+| BookRoom → API จริง | ⏳ Phase 3 |
+| Tracking Agent | ⏳ repo `smartlab` แยก (Phase 1) |
+
+รายละเอียดเต็ม: **`docs/HANDOFF_LATEST.md`**
+
+---
+
+## โครงสร้าง Repo ปัจจุบัน
 
 ```
 Kinof-project/
+├── docs/                      ← แผน + HANDOFF_LATEST.md + NEXT_AGENT_PROMPT.md
+├── backend/
+│   └── Kinof.Api/             ← ASP.NET Core 8, SQLite, MailKit OTP
 ├── kinof-app/                 ← React + Vite + Tailwind
-│   ├── src/pages/Login.jsx    ← Login (mock — fakeLogin)
-│   ├── src/pages/user/        ← Home, BookRoom, Profile, Help
-│   ├── src/pages/admin/       ← Dashboard, Monitor, Export, HelpCenter
-│   └── src/data/mockData.js   ← ข้อมูลจำลอง
+│   ├── src/pages/Login.jsx    ← เชื่อม API จริง
+│   ├── src/pages/OtpVerify.jsx
+│   ├── src/pages/Register.jsx
+│   ├── src/pages/user/        ← Home, BookRoom (mock), Profile, Help
+│   └── src/pages/admin/       ← Dashboard (mock), Monitor, Export
 └── README.md
 ```
 
-| มีแล้ว | ยังไม่มี |
-|--------|----------|
-| Login UI (เลือก user/admin) | Backend API |
-| จองห้อง (mock) | Database |
-| Admin dashboard (mock) | Email OTP |
-| Tailwind + theme KINOF | Register / Face scan |
-| | เชื่อม API จริง |
-
 ---
 
-## เริ่มทำต่อ (แนะนำ)
+## เริ่มทำต่อ
 
-### 1. Clone repo
+### 1. เปิด Cursor
+
+```
+File → Open Folder → C:\Users\User\Desktop\Kinof-project
+```
+
+- Branch: `cursor/phase0-backend-email-otp`
+- Mode: **Agent** | Model: **Composer 2.5 Fast**
+
+### 2. คัดลอก Prompt
+
+เปิด `docs/NEXT_AGENT_PROMPT.md` แล้ว copy block ในแชทใหม่
+
+### 3. รัน dev
 
 ```powershell
-cd C:\Users\User\Desktop
-git clone https://github.com/Virus260710/Kinof-project.git
-cd Kinof-project
-git checkout -b cursor/phase0-backend-email-otp
+# Backend → http://localhost:5106
+cd C:\Users\User\Desktop\Kinof-project\backend
+dotnet run --project .\Kinof.Api\Kinof.Api.csproj
+
+# Frontend → http://localhost:5173
+cd C:\Users\User\Desktop\Kinof-project\kinof-app
+npm run dev
 ```
 
-### 2. Copy docs จาก projectfinal (แผนที่วางไว้)
-
-```powershell
-Copy-Item -Recurse -Force "C:\Users\User\Desktop\projectfinal\docs" "C:\Users\User\Desktop\Kinof-project\docs"
-```
-
-### 3. เปิด Cursor
-
-- **Open Folder:** `C:\Users\User\Desktop\Kinof-project`
-- **Mode:** Agent | **Model:** Composer 2.5 Fast
-
-### 4. ลำดับงานต่อ
-
-| ลำดับ | งาน | หมายเหตุ |
-|-------|-----|----------|
-| 1 | เพิ่ม `.gitignore` (node_modules) | repo ตอนนี้ commit node_modules ไว้ |
-| 2 | สร้าง `backend/` + DB 15 ตาราง | ตาม docs/DATABASE.md |
-| 3 | เชื่อม Login.jsx → API จริง | แทน fakeLogin |
-| 4 | เพิ่มหน้า `/login/otp` (Email OTP) | ตาม docs/EMAIL_OTP.md |
-| 5 | Register + Face scan | Phase 0 ต่อ |
-| 6 | เชื่อม BookRoom → API จองจริง | Phase 3 |
+Seed: `student`/`Student123!`, `admin`/`Admin123!`
 
 ---
 
-## ความต่าง UI: Repo vs Mockup ที่ออกแบบ
+## ลำดับงานถัดไป
 
-| | GitHub Repo | Mockup ที่ส่งมา |
-|---|-------------|----------------|
-| Login | เลือก user/admin ก่อน → card เล็ก | Split-screen ซ้าย KN/KINOF |
-| OTP | ยังไม่มี | หน้า OTP email |
-| Register | ลิงก์อย่างเดียว | Flow สมัคร + ถ่ายหน้า |
-
-**แนะนำ:** ใช้ **component/theme จาก repo** + ปรับ Login ให้ใกล้ mockup + เพิ่ม OTP/Register
-
----
-
-## Prompt สำหรับ Agent (Clone repo นี้)
-
-```
-ทำต่อจาก GitHub repo Kinof-project
-
-Path: C:\Users\User\Desktop\Kinof-project
-Remote: https://github.com/Virus260710/Kinof-project.git
-
-อ่าน docs/ (copy จาก projectfinal):
-- docs/EMAIL_OTP.md, DATABASE.md, UI_AUTH_PHASE.md, FLOWS.md
-
-มี frontend แล้ว: kinof-app/ (React mock)
-
-ทำ:
-1. เพิ่ม .gitignore (node_modules, bin, obj, *.db)
-2. สร้าง backend/ ASP.NET Core + EF Core + SQLite (15 ตาราง)
-3. Auth API: login → ส่ง Email OTP, verify-email-otp
-4. ปรับ kinof-app/src/pages/Login.jsx เชื่อม API จริง
-5. เพิ่มหน้า OtpVerify (Email OTP) + react-router
-6. ยังไม่ทำ Face scan (รอบ 2)
-
-ไม่ copy Tracking Agent จาก smartlab
-```
+| ลำดับ | งาน | Phase |
+|-------|-----|-------|
+| 1 | ทดสอบ OTP flow end-to-end | 0 |
+| 2 | Face enrollment `/register/face` | 0→2 |
+| 3 | Tracking Agent (repo แยก) | 1 |
+| 4 | Kiosk face + entry OTP | 2 |
+| 5 | BookRoom / Dashboard → API | 3 |
 
 ---
 
-## โครงสร้างเป้าหมาย
+## ความต่าง UI: Repo vs Mockup
 
-```
-Kinof-project/
-├── docs/              ← จาก projectfinal
-├── kinof-app/         ← frontend มีแล้ว (ปรับ + เพิ่ม OTP)
-├── backend/           ← สร้างใหม่
-│   └── Kinof.Api/
-└── .gitignore
-```
+| | Repo ปัจจุบัน | Mockup ที่ออกแบบ |
+|---|-------------|------------------|
+| Login | เชื่อม API + OTP | Split-screen KN/KINOF |
+| OTP | ✅ OtpVerify.jsx | ✅ ตรงแผน |
+| Register | ✅ ฟอร์ม + OTP | + ถ่ายหน้า (ยังไม่ทำ) |
+| จองห้อง | mock | เชื่อม API Phase 3 |
+
+**แนะนำ:** ใช้ theme/component จาก repo + เพิ่ม face scan ตาม mockup

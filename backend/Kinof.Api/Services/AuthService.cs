@@ -3,6 +3,7 @@ using System.Net.Mail;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Kinof.Api.Data;
 using Microsoft.EntityFrameworkCore;
@@ -22,6 +23,8 @@ public sealed record RegisterRequest(
     string? Phone);
 public sealed record VerifyEmailOtpRequest(Guid UserId, string Code);
 public sealed record ResendEmailOtpRequest(Guid UserId);
+public sealed record RefreshTokenRequest(string RefreshToken);
+public sealed record RegisterFaceRequest(float[] Embedding);
 
 public sealed class AuthService(
     AppDbContext db,
@@ -161,6 +164,104 @@ public sealed class AuthService(
         });
     }
 
+    public async Task<IResult> GetMeAsync(
+        ClaimsPrincipal principal,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetUserId(principal);
+        if (userId is null)
+            return Results.Unauthorized();
+
+        var user = await db.Users.SingleOrDefaultAsync(
+            x => x.Id == userId && x.Status == UserStatus.Active,
+            cancellationToken);
+        if (user is null)
+            return Results.Unauthorized();
+
+        return Results.Ok(ToResponse(user));
+    }
+
+    public async Task<IResult> RefreshAsync(
+        RefreshTokenRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.RefreshToken))
+            return Results.Unauthorized();
+
+        var now = DateTime.UtcNow;
+        var tokenHash = HashToken(request.RefreshToken);
+        var storedToken = await db.RefreshTokens.SingleOrDefaultAsync(
+            x => x.TokenHash == tokenHash &&
+                 x.RevokedAt == null &&
+                 x.ExpiresAt > now,
+            cancellationToken);
+        if (storedToken is null)
+            return Results.Unauthorized();
+
+        var user = await db.Users.SingleOrDefaultAsync(
+            x => x.Id == storedToken.UserId && x.Status == UserStatus.Active,
+            cancellationToken);
+        if (user is null)
+            return Results.Unauthorized();
+
+        storedToken.RevokedAt = now;
+        var refreshToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+        db.RefreshTokens.Add(new RefreshToken
+        {
+            UserId = user.Id,
+            TokenHash = HashToken(refreshToken),
+            ExpiresAt = now.AddDays(7)
+        });
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(new
+        {
+            accessToken = CreateAccessToken(user),
+            refreshToken,
+            user = ToResponse(user)
+        });
+    }
+
+    public async Task<IResult> RegisterFaceAsync(
+        Guid userId,
+        RegisterFaceRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Embedding is null || request.Embedding.Length != 512)
+            return ValidationError("ต้องส่ง face embedding 512 มิติ");
+
+        var user = await db.Users.SingleOrDefaultAsync(
+            x => x.Id == userId && x.Status == UserStatus.Active,
+            cancellationToken);
+        if (user is null)
+            return Results.NotFound(new { message = "ไม่พบบัญชีผู้ใช้" });
+
+        var embeddingJson = JsonSerializer.Serialize(request.Embedding);
+        var existing = await db.FaceEmbeddings.SingleOrDefaultAsync(
+            x => x.UserId == userId,
+            cancellationToken);
+        if (existing is null)
+        {
+            db.FaceEmbeddings.Add(new FaceEmbedding
+            {
+                UserId = userId,
+                Embedding = embeddingJson,
+                IsPrimary = true
+            });
+        }
+        else
+        {
+            existing.Embedding = embeddingJson;
+            existing.IsPrimary = true;
+        }
+
+        user.FaceEnrolled = true;
+        user.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(new { ok = true, faceEnrolled = true, user = ToResponse(user) });
+    }
+
     public async Task<IResult> ResendOtpAsync(
         ResendEmailOtpRequest request,
         CancellationToken cancellationToken)
@@ -298,5 +399,12 @@ public sealed class AuthService(
 
         var visible = parts[0].Length == 0 ? "" : parts[0][..1];
         return $"{visible}***@{parts[1]}";
+    }
+
+    public static Guid? GetUserId(ClaimsPrincipal principal)
+    {
+        var subject = principal.FindFirstValue(JwtRegisteredClaimNames.Sub)
+            ?? principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        return Guid.TryParse(subject, out var userId) ? userId : null;
     }
 }

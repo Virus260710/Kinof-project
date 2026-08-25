@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Home,
   Calendar,
@@ -17,6 +17,9 @@ import Toast from "./components/Toast";
 import Login from "./pages/Login";
 import OtpVerify from "./pages/OtpVerify";
 import Register from "./pages/Register";
+import FaceEnrollIntro from "./pages/face/FaceEnrollIntro";
+import FaceEnrollScan from "./pages/face/FaceEnrollScan";
+import FaceEnrollSuccess from "./pages/face/FaceEnrollSuccess";
 
 import UserHome from "./pages/user/UserHome";
 import BookRoom from "./pages/user/BookRoom";
@@ -30,6 +33,8 @@ import AdminExport from "./pages/admin/AdminExport";
 import AdminHelpCenter from "./pages/admin/AdminHelpCenter";
 
 import { initialTickets, initialBlocked } from "./data/mockData";
+import { getMyBookings, formatThaiDate, formatSlotLabel } from "./api/bookings";
+import { storeAuth } from "./api/auth";
 
 const USER_NAV = [
   { key: "home", label: "หน้าหลัก", icon: Home },
@@ -54,6 +59,15 @@ function readStoredJson(storage, key) {
   }
 }
 
+function mapBookingRow(booking) {
+  return {
+    id: booking.id,
+    date: formatThaiDate(new Date(booking.startTime)),
+    slot: formatSlotLabel(booking.startTime, booking.endTime),
+    room: booking.room,
+  };
+}
+
 export default function App() {
   const navigate = useNavigate();
   const [auth, setAuth] = useState(() => readStoredJson(localStorage, "kinofAuth"));
@@ -63,11 +77,16 @@ export default function App() {
   const [toast, setToast] = useState("");
   const notify = (t) => setToast(t);
 
-  const [myBookings, setMyBookings] = useState([
-    { date: "20 เม.ย. 2569", slot: "รอบที่ 3  14.00 น. - 16.30 น.", room: "ห้องแล็บ 4" },
-  ]);
+  const [myBookings, setMyBookings] = useState([]);
   const [tickets, setTickets] = useState(initialTickets);
   const [blocked, setBlocked] = useState(initialBlocked);
+
+  useEffect(() => {
+    if (!auth?.accessToken || role !== "user") return;
+    getMyBookings()
+      .then((rows) => setMyBookings(rows.map(mapBookingRow)))
+      .catch(() => {});
+  }, [auth?.accessToken, role]);
 
   const handleOtpRequired = (loginResult) => {
     setPendingLogin(loginResult);
@@ -81,12 +100,22 @@ export default function App() {
       refreshToken: result.refreshToken,
       user: result.user,
     };
-    localStorage.setItem("kinofAuth", JSON.stringify(nextAuth));
+    storeAuth(nextAuth);
     sessionStorage.removeItem("kinofPendingLogin");
     setPendingLogin(null);
     setAuth(nextAuth);
     setPage(result.user.userType === "admin" ? "dashboard" : "home");
+    if (!result.user.faceEnrolled && result.user.userType !== "admin") {
+      navigate("/register/face");
+      return;
+    }
     navigate("/");
+  };
+
+  const handleFaceEnrolled = (user) => {
+    const nextAuth = { ...auth, user };
+    storeAuth(nextAuth);
+    setAuth(nextAuth);
   };
 
   const handleLogout = () => {
@@ -108,25 +137,25 @@ export default function App() {
       />
 
       <div className="flex-1 p-4 md:p-8 w-full min-w-0">
-        {/* User Pages */}
         {role === "user" && page === "home" && (
-          <UserHome setPage={setPage} myBookings={myBookings} />
+          <UserHome setPage={setPage} myBookings={myBookings} auth={auth} />
         )}
         {role === "user" && page === "book" && (
           <BookRoom
             existingBookings={myBookings}
-            addBooking={(b) => setMyBookings([...myBookings, b])}
+            onBookingCreated={(booking) => setMyBookings((current) => [mapBookingRow(booking), ...current])}
             notify={notify}
             setPage={setPage}
+            auth={auth}
           />
         )}
         {role === "user" && page === "invite" && (
           <Invitation
             notify={notify}
-            addBooking={(b) => setMyBookings([...myBookings, b])}
+            addBooking={(b) => setMyBookings((current) => [...current, b])}
           />
         )}
-        {role === "user" && page === "profile" && <UserProfile />}
+        {role === "user" && page === "profile" && <UserProfile auth={auth} />}
         {role === "user" && page === "help" && (
           <UserHelp
             tickets={tickets}
@@ -135,16 +164,11 @@ export default function App() {
           />
         )}
 
-        {/* Admin Pages */}
-        {role === "admin" && page === "dashboard" && (
-          <AdminDashboard tickets={tickets} />
-        )}
+        {role === "admin" && page === "dashboard" && <AdminDashboard tickets={tickets} />}
         {role === "admin" && page === "monitor" && (
           <AdminMonitor blocked={blocked} setBlocked={setBlocked} notify={notify} />
         )}
-        {role === "admin" && page === "export" && (
-          <AdminExport notify={notify} />
-        )}
+        {role === "admin" && page === "export" && <AdminExport notify={notify} />}
         {role === "admin" && page === "helpcenter" && (
           <AdminHelpCenter tickets={tickets} setTickets={setTickets} notify={notify} />
         )}
@@ -153,6 +177,8 @@ export default function App() {
       <Toast text={toast} onDone={() => setToast("")} />
     </div>
   );
+
+  const needsFaceEnroll = auth && !auth.user?.faceEnrolled && auth.user?.userType !== "admin";
 
   return (
     <Routes>
@@ -176,7 +202,38 @@ export default function App() {
         path="/register"
         element={auth ? <Navigate to="/" replace /> : <Register onOtpRequired={handleOtpRequired} />}
       />
-      <Route path="*" element={auth ? appShell : <Navigate to="/login" replace />} />
+      <Route
+        path="/register/face"
+        element={auth ? <FaceEnrollIntro /> : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/register/face/scan"
+        element={
+          auth ? (
+            <FaceEnrollScan onFaceEnrolled={handleFaceEnrolled} />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/register/face/success"
+        element={auth ? <FaceEnrollSuccess /> : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="*"
+        element={
+          auth ? (
+            needsFaceEnroll ? (
+              <Navigate to="/register/face" replace />
+            ) : (
+              appShell
+            )
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
     </Routes>
   );
 }

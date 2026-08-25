@@ -6,13 +6,14 @@ import Pill from "../../components/Pill";
 import { NAVY, NAVY2 } from "../../theme";
 
 // TODO(backend): myBookings should come from GET /api/bookings?user=me
-export default function UserHome({ setPage, myBookings = [] }) {
-  // ดึงรายการจองล่าสุด (ถ้ามี)
-  const latest = myBookings.length > 0 ? myBookings[myBookings.length - 1] : null;
+export default function UserHome({ setPage, myBookings = [], auth }) {
+  const latest = myBookings.length > 0 ? myBookings[0] : null;
+  const displayName = auth?.user?.firstName ?? "ผู้ใช้งาน";
+  const topBarName = auth?.user ? `${auth.user.firstName} ${auth.user.lastName?.[0] ?? ""}.` : "ผู้ใช้งาน";
 
   return (
     <div className="w-full">
-      <TopBar name="สมหญิง ส." />
+      <TopBar name={topBarName} />
       <h1 className="text-base md:text-lg font-medium text-gray-900 mb-4">หน้าหลัก</h1>
 
       {/* แบนเนอร์ต้อนรับ */}
@@ -20,7 +21,7 @@ export default function UserHome({ setPage, myBookings = [] }) {
         className="rounded-2xl text-white p-5 md:p-6 mb-6 shadow-sm"
         style={{ background: `linear-gradient(120deg, ${NAVY}, ${NAVY2})` }}
       >
-        <div className="font-semibold text-sm md:text-base mb-1">สวัสดี สมหญิง!</div>
+        <div className="font-semibold text-sm md:text-base mb-1">สวัสดี {displayName}!</div>
         <div className="text-xs text-blue-100 font-light">
           ยินดีต้อนรับเข้าสู่ระบบจองห้องแล็บ KINOF
         </div>

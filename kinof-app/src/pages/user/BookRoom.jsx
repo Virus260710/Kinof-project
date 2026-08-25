@@ -4,6 +4,7 @@ import TopBar from "../../components/TopBar";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import { NAVY } from "../../theme";
+import { BOOKING_SLOTS, createBooking, getAvailableRooms, slotToRange } from "../../api/bookings";
 
 const THAI_MONTHS = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -20,20 +21,14 @@ const afternoonSlots = [
   "รอบที่ 4 16.30 น. - 19.00 น."
 ];
 
-const initialBookings = [
-  {
-    date: "10 เมษายน 2569",
-    slot: "รอบที่ 1 09.00 น. - 11.30 น.",
-    room: "ห้องแล็บ 1"
-  },
-  {
-    date: `${new Date().getDate()} ${THAI_MONTHS[new Date().getMonth()]} ${new Date().getFullYear() + 543}`,
-    slot: "รอบที่ 2 11.30 น. - 14.00 น.",
-    room: "ห้องแล็บ 2"
-  }
-];
+const allSlotLabels = [...morningSlots, ...afternoonSlots];
 
-export default function BookRoom({ addBooking, notify, existingBookings = [], setPage }) {
+function getSlotConfig(slotLabel) {
+  const index = allSlotLabels.indexOf(slotLabel);
+  return index >= 0 ? BOOKING_SLOTS[index] : null;
+}
+
+export default function BookRoom({ onBookingCreated, notify, existingBookings = [], setPage, auth }) {
   const [step, setStep] = useState(1);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -41,18 +36,35 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
   const [slot, setSlot] = useState(null);
   const [friends, setFriends] = useState(["กิตติ ศักดิ์ (kitti_sak5187@gmail.com)"]);
   const [newFriend, setNewFriend] = useState("");
-  const [room, setRoom] = useState("ห้องแล็บ 4");
+  const [room, setRoom] = useState(null);
+  const [availableRooms, setAvailableRooms] = useState([]);
+  const [loadingRooms, setLoadingRooms] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
-  const [bookingsList, setBookingsList] = useState([
-    ...initialBookings,
-    ...existingBookings
-  ]);
+  const [bookingsList, setBookingsList] = useState([...existingBookings]);
 
   useEffect(() => {
-    setBookingsList([...initialBookings, ...existingBookings]);
+    setBookingsList([...existingBookings]);
   }, [existingBookings]);
 
-  const userEmail = "somy@gmail.com";
+  useEffect(() => {
+    if (step !== 2 || !slot) return;
+    const slotConfig = getSlotConfig(slot);
+    if (!slotConfig) return;
+    const { start, end } = slotToRange(selectedDate, slotConfig);
+    setLoadingRooms(true);
+    setError("");
+    getAvailableRooms(start, end)
+      .then((rooms) => {
+        setAvailableRooms(rooms);
+        setRoom((current) => (current && rooms.some((item) => item.id === current.id) ? current : null));
+      })
+      .catch((requestError) => setError(requestError.message))
+      .finally(() => setLoadingRooms(false));
+  }, [step, slot, selectedDate]);
+
+  const userEmail = auth?.user?.email ?? "—";
   const steps = ["1. เลือกวัน-เวลา", "2. จัดการสมาชิก-ดูห้อง", "3. ยืนยันการจอง"];
   const formattedDate = `${selectedDate.getDate()} ${THAI_MONTHS[selectedDate.getMonth()]} ${selectedDate.getFullYear() + 543}`;
 
@@ -163,24 +175,38 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
     setNewFriend("");
   };
 
-  const handleConfirmBooking = () => {
-    const newBooking = { date: formattedDate, slot, room, friends };
-    setBookingsList((prev) => [...prev, newBooking]);
+  const handleConfirmBooking = async () => {
+    const slotConfig = getSlotConfig(slot);
+    if (!room || !slotConfig) return;
 
-    if (addBooking) {
-      addBooking(newBooking);
+    setSubmitting(true);
+    setError("");
+    try {
+      const { start, end } = slotToRange(selectedDate, slotConfig);
+      const booking = await createBooking({ roomId: room.id, startTime: start, endTime: end });
+      const newBooking = {
+        date: formattedDate,
+        slot,
+        room: booking.room,
+        friends,
+      };
+      setBookingsList((prev) => [...prev, newBooking]);
+      onBookingCreated?.(booking);
+      if (notify) notify("ยืนยันการจองห้องแล็บเรียบร้อยแล้ว");
+      setIsSubmitted(true);
+    } catch (requestError) {
+      setError(requestError.message);
+      if (notify) notify(requestError.message);
+    } finally {
+      setSubmitting(false);
     }
-    if (notify) {
-      notify("ยืนยันการจองห้องแล็บเรียบร้อยแล้ว");
-    }
-    setIsSubmitted(true);
   };
 
   const handleReset = () => {
     setIsSubmitted(false);
     setStep(1);
     setSlot(null);
-    setRoom("ห้องแล็บ 4");
+    setRoom(null);
   };
 
   const handleBackToHome = () => {
@@ -194,7 +220,7 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
 
   return (
     <div className="w-full">
-      <TopBar name="สมหญิง ส." />
+      <TopBar name={auth?.user ? `${auth.user.firstName} ${auth.user.lastName?.[0] ?? ""}.` : "ผู้ใช้งาน"} />
       <h1 className="text-base md:text-lg font-medium text-gray-900 mb-4">จองห้องแล็บ</h1>
 
       {/* Stepper Banner */}
@@ -421,19 +447,26 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
           </div>
 
           <div className="text-xs text-gray-500 mb-2">ห้องที่ว่างในช่วงเวลานี้</div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-            {["ห้องแล็บ 1", "ห้องแล็บ 2", "ห้องแล็บ 3", "ห้องแล็บ 4"].map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRoom(r)}
-                className="border rounded-lg py-3 text-xs transition-colors"
-                style={room === r ? { borderColor: NAVY, background: "#F4F5F8" } : { borderColor: "#e5e5e5" }}
-              >
-                {r}
-              </button>
-            ))}
-          </div>
+          {loadingRooms ? (
+            <p className="text-xs text-gray-500 mb-6">กำลังโหลดห้องว่าง...</p>
+          ) : availableRooms.length === 0 ? (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3 mb-6">ไม่มีห้องว่างในช่วงเวลานี้</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+              {availableRooms.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setRoom(item)}
+                  className="border rounded-lg py-3 text-xs transition-colors"
+                  style={room?.id === item.id ? { borderColor: NAVY, background: "#F4F5F8" } : { borderColor: "#e5e5e5" }}
+                >
+                  {item.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {error && <p className="text-xs text-red-600 mb-4" role="alert">{error}</p>}
 
           <div className="flex justify-between gap-2">
             <button type="button" onClick={() => setStep(1)} className="text-xs text-gray-500 border border-gray-200 rounded-lg px-4 py-2 hover:bg-gray-50">
@@ -472,7 +505,7 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
               </div>
               <div className="grid grid-cols-3 px-4 md:px-5 py-3.5 items-center">
                 <span className="text-gray-500">ห้อง:</span>
-                <span className="col-span-2 font-medium">{room || "-"}</span>
+                <span className="col-span-2 font-medium">{room?.name || "-"}</span>
               </div>
               <div className="grid grid-cols-3 px-4 md:px-5 py-3.5 items-center">
                 <span className="text-gray-500">เพื่อนร่วมกลุ่ม:</span>
@@ -494,7 +527,8 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
             <button
               type="button"
               onClick={handleConfirmBooking}
-              className="text-white text-xs font-medium rounded-xl px-5 md:px-6 py-2.5 flex items-center gap-2 shadow-sm transition-opacity"
+              disabled={submitting}
+              className="text-white text-xs font-medium rounded-xl px-5 md:px-6 py-2.5 flex items-center gap-2 shadow-sm transition-opacity disabled:opacity-60"
               style={{ background: NAVY }}
             >
               <span>ยืนยันการจอง</span>
@@ -533,7 +567,7 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
               </div>
               <div className="grid grid-cols-3 px-4 md:px-5 py-3">
                 <span className="text-gray-500">ห้อง:</span>
-                <span className="col-span-2 font-medium">{room || "-"}</span>
+                <span className="col-span-2 font-medium">{room?.name || "-"}</span>
               </div>
               <div className="grid grid-cols-3 px-4 md:px-5 py-3">
                 <span className="text-gray-500">เพื่อนร่วมกลุ่ม:</span>

@@ -16,12 +16,15 @@ const initialPenaltyHistory = [
 ];
 
 // TODO(backend): profile + score -> GET /api/users/me, schedule -> GET /api/schedule/me, penalties -> GET /api/penalties/me
-export default function UserProfile({ scheduleRows = mockScheduleRows, userScore = 95 }) {
+export default function UserProfile({ scheduleRows = mockScheduleRows, userScore = 95, auth }) {
   const penaltyHistory = initialPenaltyHistory;
+  const user = auth?.user;
+  const initial = user?.firstName?.[0] ?? "ส";
+  const topBarName = user ? `${user.firstName} ${user.lastName?.[0] ?? ""}.` : "ผู้ใช้งาน";
 
   return (
     <div className="w-full">
-      <TopBar name="สมหญิง ส." />
+      <TopBar name={topBarName} />
       <h1 className="text-base md:text-lg font-medium text-gray-900 mb-4">โปรไฟล์</h1>
 
       {/* แบนเนอร์ต้อนรับ */}
@@ -29,7 +32,7 @@ export default function UserProfile({ scheduleRows = mockScheduleRows, userScore
         className="rounded-2xl text-white p-5 md:p-6 mb-6 shadow-sm"
         style={{ background: `linear-gradient(120deg, ${NAVY}, ${NAVY2})` }}
       >
-        <div className="font-semibold text-sm md:text-base mb-1">สวัสดี สมหญิง!</div>
+        <div className="font-semibold text-sm md:text-base mb-1">สวัสดี {user?.firstName ?? "ผู้ใช้งาน"}!</div>
         <div className="text-xs text-blue-100 font-light">
           ข้อมูลและรายละเอียดโปรไฟล์ของคุณ
         </div>
@@ -44,23 +47,23 @@ export default function UserProfile({ scheduleRows = mockScheduleRows, userScore
                 className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-base shadow-sm shrink-0"
                 style={{ background: GOLD }}
               >
-                ส
+                {initial}
               </div>
               <div>
                 <div className="font-semibold text-gray-900 text-sm mb-1">
-                  สมหญิง สวยงาม
+                  {user ? `${user.firstName} ${user.lastName}` : "สมหญิง สวยงาม"}
                 </div>
-                <Pill tone="blue">นักศึกษา</Pill>
+                <Pill tone="blue">{user?.userType === "external" ? "บุคคลภายนอก" : "นักศึกษา"}</Pill>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-y-3 text-xs border-t border-gray-100 pt-4">
               <div className="text-gray-500">อีเมล</div>
-              <div className="text-gray-800 font-medium truncate pr-2">somy@gmail.com</div>
-              <div className="text-gray-500">ชื่อบัญชี</div>
-              <div className="text-gray-800 font-medium">som_ying</div>
-              <div className="text-gray-500">รหัสผู้ใช้</div>
-              <div className="text-gray-800 font-medium">0005</div>
+              <div className="text-gray-800 font-medium truncate pr-2">{user?.email ?? "somy@gmail.com"}</div>
+              <div className="text-gray-500">ชื่อผู้ใช้</div>
+              <div className="text-gray-800 font-medium">{user?.username ?? "som_ying"}</div>
+              <div className="text-gray-500">ลงทะเบียนใบหน้า</div>
+              <div className="text-gray-800 font-medium">{user?.faceEnrolled ? "แล้ว" : "ยังไม่ได้ลงทะเบียน"}</div>
             </div>
           </div>
         </Card>
