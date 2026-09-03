@@ -1,13 +1,29 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, ArrowRight, Plus, Trash2, Check, AlertTriangle, CalendarPlus } from "lucide-react";
-import TopBar from "../../components/TopBar";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Calendar as CalendarIcon,
+  ArrowRight,
+  Plus,
+  Check,
+  AlertTriangle,
+  CalendarPlus,
+  Search,
+  Users,
+  UserCheck,
+  AlertCircle
+} from "lucide-react";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
-import { NAVY } from "../../theme";
+import Button from "../../components/Button";
 
 const THAI_MONTHS = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
   "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+];
+
+const DAYS_OF_WEEK = [
+  "วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"
 ];
 
 const morningSlots = [
@@ -20,17 +36,30 @@ const afternoonSlots = [
   "รอบที่ 4 16.30 น. - 19.00 น."
 ];
 
+const userScheduleData = [
+  { day: "วันจันทร์", course: "IT319 / Low-Code and No-Code Development", slot: "รอบที่ 1 09.00 น. - 11.30 น." },
+  { day: "วันจันทร์", course: "IT320 / Web Application Development", slot: "รอบที่ 3 14.00 น. - 16.30 น." },
+  { day: "วันพุธ", course: "IT453 / RPA Development", slot: "รอบที่ 3 14.00 น. - 16.30 น." },
+  { day: "วันพฤหัสบดี", course: "IT464 / Web Administration", slot: "รอบที่ 4 16.30 น. - 19.00 น." }
+];
+
+const mockUsersList = [
+  { name: "กิตติ ศักดิ์", email: "kitti_sak5187@gmail.com", status: "joined" },
+  { name: "ไฟท์", email: "fighteiei@gmail.com", status: "pending" },
+  { name: "วรากร ใจดี", email: "warakorn@gmail.com", status: "joined" },
+  { name: "ปิยะนันท์ บุญมี", email: "piyanan@gmail.com", status: "pending" },
+  { name: "ธนภัทร วงศ์ษา", email: "thanaphat@gmail.com", status: "joined" }
+];
+
+const mockRoomsData = [
+  { id: "room-1", name: "ห้องแล็บ 1", maxSeats: 30, availableSeats: 25 },
+  { id: "room-2", name: "ห้องแล็บ 2", maxSeats: 30, availableSeats: 12 },
+  { id: "room-3", name: "ห้องแล็บ 3", maxSeats: 20, availableSeats: 8 },
+  { id: "room-4", name: "ห้องแล็บ 4", maxSeats: 25, availableSeats: 18 }
+];
+
 const initialBookings = [
-  {
-    date: "10 เมษายน 2569",
-    slot: "รอบที่ 1 09.00 น. - 11.30 น.",
-    room: "ห้องแล็บ 1"
-  },
-  {
-    date: `${new Date().getDate()} ${THAI_MONTHS[new Date().getMonth()]} ${new Date().getFullYear() + 543}`,
-    slot: "รอบที่ 2 11.30 น. - 14.00 น.",
-    room: "ห้องแล็บ 2"
-  }
+  { date: "10 เมษายน 2569", slot: "รอบที่ 1 09.00 น. - 11.30 น.", room: "ห้องแล็บ 1" }
 ];
 
 export default function BookRoom({ addBooking, notify, existingBookings = [], setPage }) {
@@ -39,14 +68,20 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewDate, setViewDate] = useState(new Date());
   const [slot, setSlot] = useState(null);
-  const [friends, setFriends] = useState(["กิตติ ศักดิ์ (kitti_sak5187@gmail.com)"]);
-  const [newFriend, setNewFriend] = useState("");
-  const [room, setRoom] = useState("ห้องแล็บ 4");
 
-  const [bookingsList, setBookingsList] = useState([
-    ...initialBookings,
-    ...existingBookings
+  const [friends, setFriends] = useState([
+    { email: "kitti_sak5187@gmail.com", name: "กิตติ ศักดิ์", status: "joined" },
+    { email: "fighteiei@gmail.com", name: "ไฟท์", status: "pending" }
   ]);
+  const [friendEmailInput, setFriendEmailInput] = useState("");
+  const [emailError, setEmailError] = useState(false);
+
+  const [hasSearchedRooms, setHasSearchedRooms] = useState(false);
+  const [isSearchingRooms, setIsSearchingRooms] = useState(false);
+  const [availableRooms, setAvailableRooms] = useState([]);
+  const [selectedRoom, setSelectedRoom] = useState(null);
+
+  const [bookingsList, setBookingsList] = useState([...initialBookings, ...existingBookings]);
 
   useEffect(() => {
     setBookingsList([...initialBookings, ...existingBookings]);
@@ -56,11 +91,9 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
   const steps = ["1. เลือกวัน-เวลา", "2. จัดการสมาชิก-ดูห้อง", "3. ยืนยันการจอง"];
   const formattedDate = `${selectedDate.getDate()} ${THAI_MONTHS[selectedDate.getMonth()]} ${selectedDate.getFullYear() + 543}`;
 
-  // วันปัจจุบัน (ตัดเศษเวลาออกเพื่อเทียบแค่วัน/เดือน/ปี)
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // เช็กว่าเป็นวันที่ผ่านมาแล้วหรือไม่
   const isPastDate = (date) => {
     const target = new Date(date);
     target.setHours(0, 0, 0, 0);
@@ -68,111 +101,118 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
   };
 
   const isSlotBooked = (checkSlot) => {
-    return bookingsList.some(
-      (b) => b.date === formattedDate && b.slot === checkSlot
-    );
+    return bookingsList.some((b) => b.date === formattedDate && b.slot === checkSlot);
+  };
+
+  const getSlotClassConflict = (checkSlot) => {
+    const selectedDayName = DAYS_OF_WEEK[selectedDate.getDay()];
+    return userScheduleData.find((s) => s.day === selectedDayName && s.slot === checkSlot);
   };
 
   const handleSelectDate = (date) => {
     if (isPastDate(date)) return;
-
     setSelectedDate(date);
-    const newFormattedDate = `${date.getDate()} ${THAI_MONTHS[date.getMonth()]} ${date.getFullYear() + 543}`;
-    const isCurrentSlotBooked = bookingsList.some(
-      (b) => b.date === newFormattedDate && b.slot === slot
-    );
-    if (isCurrentSlotBooked) {
-      setSlot(null);
-    }
+    setSlot(null);
+    setHasSearchedRooms(false);
+    setSelectedRoom(null);
   };
 
-  const handlePrevMonth = () => {
-    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
-  };
-
-  const handleNextMonth = () => {
-    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
-  };
+  const handlePrevMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
+  const handleNextMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
 
   const generateCalendarDays = () => {
     const year = viewDate.getFullYear();
     const month = viewDate.getMonth();
-
     const firstDayIndex = new Date(year, month, 1).getDay();
     const thaiFirstDayIndex = (firstDayIndex + 6) % 7;
     const daysInCurrentMonth = new Date(year, month + 1, 0).getDate();
     const daysInPrevMonth = new Date(year, month, 0).getDate();
 
     const days = [];
-
     for (let i = thaiFirstDayIndex - 1; i >= 0; i--) {
-      days.push({
-        date: new Date(year, month - 1, daysInPrevMonth - i),
-        isCurrentMonth: false,
-      });
+      days.push({ date: new Date(year, month - 1, daysInPrevMonth - i), isCurrentMonth: false });
     }
-
     for (let i = 1; i <= daysInCurrentMonth; i++) {
-      days.push({
-        date: new Date(year, month, i),
-        isCurrentMonth: true,
-      });
+      days.push({ date: new Date(year, month, i), isCurrentMonth: true });
     }
-
     const remainingDays = (7 - (days.length % 7)) % 7;
     for (let i = 1; i <= remainingDays; i++) {
-      days.push({
-        date: new Date(year, month + 1, i),
-        isCurrentMonth: false,
-      });
+      days.push({ date: new Date(year, month + 1, i), isCurrentMonth: false });
     }
-
     return days;
   };
 
   const isSameDate = (d1, d2) => {
     if (!d1 || !d2) return false;
-    return (
-      d1.getDate() === d2.getDate() &&
-      d1.getMonth() === d2.getMonth() &&
-      d1.getFullYear() === d2.getFullYear()
-    );
+    return d1.getDate() === d2.getDate() && d1.getMonth() === d2.getMonth() && d1.getFullYear() === d2.getFullYear();
   };
 
   const formatSlotDisplay = (slotStr) => {
     if (!slotStr) return "";
     const match = slotStr.match(/(รอบที่ \d+)\s+(.+)/);
-    if (match) {
-      return `${match[2]} (${match[1]})`;
-    }
-    return slotStr;
+    return match ? `${match[2]} (${match[1]})` : slotStr;
   };
 
   const handleAddFriend = () => {
-    const trimmed = newFriend.trim();
+    setEmailError(false);
+    const trimmed = friendEmailInput.trim().toLowerCase();
     if (!trimmed) return;
-    if (friends.length >= 5) {
-      if (notify) notify("สามารถเพิ่มเพื่อนได้สูงสุด 5 คน");
+
+    if (trimmed === userEmail.toLowerCase()) {
+      setEmailError(true);
       return;
     }
-    if (friends.includes(trimmed)) {
-      if (notify) notify("มีอีเมลนี้ในรายการแล้ว");
+
+    if (friends.some((f) => f.email.toLowerCase() === trimmed)) {
+      if (notify) notify("มีอีเมลนี้อยู่ในกลุ่มแล้ว");
       return;
     }
-    setFriends([...friends, trimmed]);
-    setNewFriend("");
+
+    if (friends.length >= 4) {
+      if (notify) notify("สามารถเชิญสมาชิกเข้าร่วมกลุ่มได้สูงสุด 5 คน รวมคุณแล้ว");
+      return;
+    }
+
+    const foundUser = mockUsersList.find((u) => u.email.toLowerCase() === trimmed);
+    if (foundUser) {
+      setFriends([...friends, foundUser]);
+      setFriendEmailInput("");
+      if (notify) notify(`เพิ่ม ${foundUser.email} เข้าสู่กลุ่มแล้ว`);
+    } else {
+      setEmailError(true);
+    }
+  };
+
+  const handleRemoveFriend = (emailToRemove) => {
+    setFriends(friends.filter((f) => f.email !== emailToRemove));
+  };
+
+  const handleClearGroup = () => {
+    setFriends([]);
+    setFriendEmailInput("");
+    setEmailError(false);
+    if (notify) notify("ลบรายชื่อสมาชิกในกลุ่มทั้งหมดแล้ว");
+  };
+
+  const handleSearchAvailableRooms = () => {
+    setIsSearchingRooms(true);
+    setTimeout(() => {
+      setAvailableRooms(mockRoomsData);
+      setHasSearchedRooms(true);
+      setIsSearchingRooms(false);
+    }, 300);
   };
 
   const handleConfirmBooking = () => {
-    const newBooking = { date: formattedDate, slot, room, friends };
+    const newBooking = {
+      date: formattedDate,
+      slot,
+      room: selectedRoom?.name,
+      friends: friends.map(f => `${f.name || f.email} (${f.email})`)
+    };
     setBookingsList((prev) => [...prev, newBooking]);
-
-    if (addBooking) {
-      addBooking(newBooking);
-    }
-    if (notify) {
-      notify("ยืนยันการจองห้องแล็บเรียบร้อยแล้ว");
-    }
+    if (addBooking) addBooking(newBooking);
+    if (notify) notify("ยืนยันการจองห้องแล็บเรียบร้อยแล้ว");
     setIsSubmitted(true);
   };
 
@@ -180,53 +220,96 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
     setIsSubmitted(false);
     setStep(1);
     setSlot(null);
-    setRoom("ห้องแล็บ 4");
+    setSelectedRoom(null);
+    setHasSearchedRooms(false);
+    setFriends([]);
+    setFriendEmailInput("");
+    setEmailError(false);
   };
 
   const handleBackToHome = () => {
-    handleReset();
-    if (setPage) {
-      setPage("home");
-    }
+    if (setPage) setPage("home");
   };
 
   const calendarDays = generateCalendarDays();
 
+  const renderSlotButton = (s) => {
+    const booked = isSlotBooked(s);
+    const classConflict = getSlotClassConflict(s);
+    const isDisabled = booked || !!classConflict;
+
+    return (
+      <button
+        type="button"
+        key={s}
+        disabled={isDisabled}
+        onClick={() => {
+          setSlot(s);
+          setHasSearchedRooms(false);
+          setSelectedRoom(null);
+        }}
+        className={`text-xs text-left rounded-xl px-4 py-3 border transition-all duration-150 flex items-center justify-between ${
+          classConflict
+            ? "bg-rose-50/50 border-rose-200 text-rose-400 cursor-not-allowed"
+            : booked
+            ? "bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed"
+            : slot === s
+            ? "text-white font-medium shadow-blue-glow scale-[1.01] bg-navy-800 border-navy-800"
+            : "border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50 bg-white"
+        }`}
+      >
+        <span className="font-medium">{s}</span>
+        {classConflict ? (
+          <span className="text-[10px] bg-rose-100 text-rose-700 font-medium px-2.5 py-0.5 rounded-full" title={classConflict.course}>
+            ติดเรียน
+          </span>
+        ) : booked ? (
+          <span className="text-[10px] bg-slate-200 text-slate-600 font-medium px-2.5 py-0.5 rounded-full">
+            จองแล้ว
+          </span>
+        ) : null}
+      </button>
+    );
+  };
+
   return (
-    <div className="w-full">
-      <TopBar name="สมหญิง ส." />
-      <h1 className="text-base md:text-lg font-medium text-gray-900 mb-4">จองห้องแล็บ</h1>
+    <div className="w-full max-w-6xl mx-auto">
+      <div className="mb-5">
+        <h1 className="text-xl md:text-2xl font-bold text-ink tracking-tight">จองห้องแล็บ</h1>
+        <p className="text-caption mt-0.5">เลือกวัน เวลา และห้องปฏิบัติการที่ต้องการใช้งาน</p>
+      </div>
 
       {/* Stepper Banner */}
-      <div className="text-white rounded-2xl p-4 md:p-5 mb-6 shadow-sm" style={{ background: NAVY }}>
-        <p className="text-xs text-blue-200 mb-4 text-left font-light opacity-90">
-          กรุณาจองล่วงหน้าอย่างน้อย 1 ชั่วโมงก่อนเข้าใช้ห้องแล็บ
-        </p>
-
-        <div className="flex items-center justify-center max-w-lg mx-auto overflow-x-auto pb-2 md:pb-0">
+      <div className="rounded-3xl text-white p-5 md:p-6 mb-7 shadow-blue-glow border border-navy-700/30 bg-brand-gradient">
+        <div className="flex items-center justify-center max-w-xl mx-auto overflow-x-auto py-1">
           {steps.map((s, i) => {
             const isStepCompleted = isSubmitted && i === 2;
+            const stepNum = i + 1;
+            const isActive = step === stepNum;
+            const isPast = step > stepNum;
+
             return (
               <React.Fragment key={s}>
                 <div className="flex flex-col items-center shrink-0">
                   <div
-                    className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold mb-1.5 transition-colors"
-                    style={
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold mb-2 transition-all duration-200 shadow-sm ${
                       isStepCompleted
-                        ? { background: "#22c55e", color: "white" }
-                        : step === i + 1
-                        ? { background: "white", color: NAVY }
-                        : step > i + 1
-                        ? { background: "#93c5fd", color: "#1e3a8a" }
-                        : { background: "rgba(255, 255, 255, 0.15)", color: "#e0e7ff" }
-                    }
+                        ? "bg-emerald-500 text-white"
+                        : isActive
+                        ? "bg-white text-navy-800 scale-110"
+                        : isPast
+                        ? "bg-teal-500 text-white"
+                        : "bg-white/15 text-slate-300"
+                    }`}
                   >
-                    {isStepCompleted ? <Check size={16} strokeWidth={3} /> : `${i + 1}.`}
+                    {isStepCompleted || isPast ? <Check size={16} strokeWidth={3} /> : `${stepNum}`}
                   </div>
-                  <span className="text-[10px] md:text-[11px] text-blue-100 whitespace-nowrap">{s}</span>
+                  <span className={`text-[11px] font-medium whitespace-nowrap ${isActive ? "text-white font-semibold" : "text-slate-300"}`}>
+                    {s}
+                  </span>
                 </div>
                 {i < steps.length - 1 && (
-                  <div className="flex-1 min-w-[20px] h-[2px] bg-white/20 mx-2 md:mx-4 -mt-5" />
+                  <div className="flex-1 min-w-[30px] md:min-w-[60px] h-[2px] bg-white/20 mx-3 -mt-6" />
                 )}
               </React.Fragment>
             );
@@ -234,32 +317,33 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
         </div>
       </div>
 
-      {/* STEP 1: เลือกวัน-เวลา */}
+      {/* STEP 1: ปฏิทินและเวลา */}
       {!isSubmitted && step === 1 && (
-        <div>
+        <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+            {/* เลือกวันที่ */}
             <div>
-              <h2 className="text-xs text-gray-500 font-medium mb-2">เลือกวันที่</h2>
-              <div className="border border-gray-200 rounded-2xl overflow-hidden shadow-sm bg-white">
-                <div className="text-white px-4 md:px-5 py-3.5" style={{ background: NAVY }}>
-                  <div className="flex items-center justify-between text-sm font-medium mb-3">
-                    <button type="button" onClick={handlePrevMonth} className="hover:opacity-75 p-1 transition-opacity">
+              <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-2">1. เลือกวันที่</h2>
+              <div className="border border-slate-200/80 rounded-2xl overflow-hidden shadow-soft bg-white">
+                <div className="text-white px-5 py-4 bg-navy-800">
+                  <div className="flex items-center justify-between text-sm font-semibold mb-3">
+                    <button type="button" onClick={handlePrevMonth} className="hover:bg-white/10 p-1.5 rounded-lg transition-colors">
                       <ChevronLeft size={16} />
                     </button>
                     <div className="flex items-center gap-2">
                       <span>{THAI_MONTHS[viewDate.getMonth()]} {viewDate.getFullYear() + 543}</span>
-                      <CalendarIcon size={16} />
+                      <CalendarIcon size={16} className="text-gold-400" />
                     </div>
-                    <button type="button" onClick={handleNextMonth} className="hover:opacity-75 p-1 transition-opacity">
+                    <button type="button" onClick={handleNextMonth} className="hover:bg-white/10 p-1.5 rounded-lg transition-colors">
                       <ChevronRight size={16} />
                     </button>
                   </div>
-                  <div className="grid grid-cols-7 text-center text-xs text-blue-200 font-light">
+                  <div className="grid grid-cols-7 text-center text-xs text-slate-300 font-medium">
                     <span>จ</span><span>อ</span><span>พ</span><span>พฤ</span><span>ศ</span><span>ส</span><span>อา</span>
                   </div>
                 </div>
 
-                <div className="p-3 md:p-4 grid grid-cols-7 gap-y-2 text-center text-xs">
+                <div className="p-4 grid grid-cols-7 gap-y-2 text-center text-xs">
                   {calendarDays.map((item, index) => {
                     const isSelected = isSameDate(item.date, selectedDate);
                     const isCurrentToday = isSameDate(item.date, today);
@@ -267,27 +351,22 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
                     const isDisabled = !item.isCurrentMonth || past;
 
                     return (
-                      <div key={index} className="flex justify-center items-center py-0.5">
+                      <div key={index} className="flex justify-center items-center py-1">
                         <button
                           type="button"
-                          onClick={() => {
-                            if (!isDisabled) {
-                              handleSelectDate(item.date);
-                            }
-                          }}
+                          onClick={() => !isDisabled && handleSelectDate(item.date)}
                           disabled={isDisabled}
-                          className={`w-7 h-7 rounded-full flex items-center justify-center transition-all ${
+                          className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-150 ${
                             !item.isCurrentMonth
-                              ? "text-gray-300 cursor-default"
+                              ? "text-slate-300 cursor-default"
                               : past
-                              ? "text-gray-300 cursor-not-allowed line-through opacity-60"
+                              ? "text-slate-300 cursor-not-allowed line-through opacity-50"
                               : isSelected
-                              ? "text-white font-medium shadow"
+                              ? "text-white font-bold shadow-md bg-navy-800"
                               : isCurrentToday
-                              ? "bg-gray-200 text-gray-800 font-medium"
-                              : "text-gray-700 hover:bg-gray-100"
+                              ? "bg-slate-200 text-slate-900 font-bold"
+                              : "text-slate-700 hover:bg-slate-100 font-medium"
                           }`}
-                          style={item.isCurrentMonth && isSelected && !past ? { background: NAVY } : {}}
                         >
                           {item.date.getDate()}
                         </button>
@@ -298,278 +377,342 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
               </div>
             </div>
 
+            {/* เลือกช่วงเวลา */}
             <div>
-              <h2 className="text-xs text-gray-500 font-medium mb-2">เลือกเวลา</h2>
-              <div className="border border-gray-200 rounded-2xl p-4 md:p-5 bg-white shadow-sm flex flex-col gap-4">
-                {/* ช่วงเช้า */}
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-xs font-semibold text-muted uppercase tracking-wider">2. เลือกช่วงเวลา</h2>
+                <span className="text-xs font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200/60">
+                  {DAYS_OF_WEEK[selectedDate.getDay()]}
+                </span>
+              </div>
+
+              <Card className="p-5 flex flex-col gap-4">
                 <div>
-                  <span className="text-xs text-gray-500 font-medium block mb-2">ช่วงเช้า</span>
+                  <span className="text-xs font-semibold text-muted block mb-2">ช่วงเช้า</span>
                   <div className="flex flex-col gap-2">
-                    {morningSlots.map((s) => {
-                      const booked = isSlotBooked(s);
-                      return (
-                        <button
-                          type="button"
-                          key={s}
-                          disabled={booked}
-                          onClick={() => setSlot(s)}
-                          className={`text-xs text-left rounded-xl px-4 py-2.5 border transition-all flex items-center justify-between ${
-                            booked
-                              ? "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed"
-                              : slot === s
-                              ? "text-white font-medium"
-                              : "border-gray-200 text-gray-700 hover:border-gray-300 bg-white"
-                          }`}
-                          style={!booked && slot === s ? { background: NAVY, borderColor: NAVY } : {}}
-                        >
-                          <span>{s}</span>
-                          {booked && (
-                            <span className="text-[10px] bg-gray-200 text-gray-500 font-normal px-2 py-0.5 rounded-full">
-                              จองแล้ว
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
+                    {morningSlots.map((s) => renderSlotButton(s))}
                   </div>
                 </div>
 
-                {/* ช่วงบ่าย */}
-                <div>
-                  <span className="text-xs text-gray-500 font-medium block mb-2">ช่วงบ่าย</span>
+                <div className="pt-2 border-t border-slate-100">
+                  <span className="text-xs font-semibold text-muted block mb-2">ช่วงบ่าย</span>
                   <div className="flex flex-col gap-2">
-                    {afternoonSlots.map((s) => {
-                      const booked = isSlotBooked(s);
-                      return (
-                        <button
-                          type="button"
-                          key={s}
-                          disabled={booked}
-                          onClick={() => setSlot(s)}
-                          className={`text-xs text-left rounded-xl px-4 py-2.5 border transition-all flex items-center justify-between ${
-                            booked
-                              ? "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed"
-                              : slot === s
-                              ? "text-white font-medium"
-                              : "border-gray-200 text-gray-700 hover:border-gray-300 bg-white"
-                          }`}
-                          style={!booked && slot === s ? { background: NAVY, borderColor: NAVY } : {}}
-                        >
-                          <span>{s}</span>
-                          {booked && (
-                            <span className="text-[10px] bg-gray-200 text-gray-500 font-normal px-2 py-0.5 rounded-full">
-                              จองแล้ว
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
+                    {afternoonSlots.map((s) => renderSlotButton(s))}
                   </div>
                 </div>
-              </div>
+              </Card>
             </div>
           </div>
 
-          <div className="flex justify-end mt-6">
-            <button
-              type="button"
-              disabled={!slot}
-              onClick={() => setStep(2)}
-              className="text-white text-sm font-medium rounded-xl px-6 py-2.5 flex items-center gap-2 disabled:opacity-40 shadow-sm transition-opacity"
-              style={{ background: NAVY }}
-            >
-              <span>ถัดไป</span>
-              <ArrowRight size={16} />
-            </button>
+          <div className="flex justify-end pt-2">
+            <Button variant="primary" icon={ArrowRight} disabled={!slot} onClick={() => setStep(2)}>
+              ถัดไป
+            </Button>
           </div>
         </div>
       )}
 
-      {/* STEP 2: จัดการสมาชิก-ดูห้อง */}
+      {/* STEP 2: จัดการกลุ่มและเลือกห้อง */}
       {!isSubmitted && step === 2 && (
-        <Card className="p-4 md:p-6">
-          <div className="text-xs text-gray-500 mb-2">เชิญเพื่อนเข้าร่วมกลุ่ม (สูงสุด 5 คน)</div>
-          <div className="flex flex-col gap-2 mb-3">
-            {friends.map((f, i) => (
-              <div key={i} className="flex items-center justify-between border border-gray-200 rounded-lg px-3 py-2 text-xs">
-                <span className="text-gray-700 truncate pr-2">{f}</span>
-                <div className="flex items-center gap-2 shrink-0">
-                  <Pill tone="green">เข้าร่วมแล้ว</Pill>
-                  <button type="button" onClick={() => setFriends(friends.filter((x) => x !== f))} className="text-red-500 hover:text-red-700">
-                    <Trash2 size={13} />
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-base font-bold text-ink tracking-tight mb-0.5">เชิญเพื่อนเข้าร่วมกลุ่ม</h2>
+            <p className="text-caption">สามารถเชิญสมาชิกเข้าร่วมกลุ่มได้สูงสุด 5 คน รวมคุณแล้ว</p>
+          </div>
+
+          <Card className="p-5 md:p-6 space-y-4">
+            {friends.map((f) => (
+              <div
+                key={f.email}
+                className="flex items-center justify-between border border-slate-200/80 rounded-xl px-4 py-3 text-xs bg-slate-50/40"
+              >
+                <div className="flex items-center gap-2">
+                  <UserCheck size={15} className="text-slate-400" />
+                  <span className="text-slate-800 font-medium">{f.email}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {f.status === "joined" ? (
+                    <Pill tone="green" withDot>เข้าร่วมแล้ว</Pill>
+                  ) : (
+                    <Pill tone="amber" withDot>ยังไม่เข้าร่วม</Pill>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveFriend(f.email)}
+                    className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-xs px-3 py-1 rounded-lg font-medium transition-colors"
+                  >
+                    ลบ
                   </button>
                 </div>
               </div>
             ))}
-          </div>
 
-          <div className="flex flex-col sm:flex-row gap-2 mb-6">
-            <input
-              value={newFriend}
-              onChange={(e) => setNewFriend(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAddFriend()}
-              placeholder="กรอกอีเมลเพื่อนเพื่อเชิญเข้ากลุ่ม"
-              className="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
-            />
-            <button
-              type="button"
-              onClick={handleAddFriend}
-              className="flex items-center justify-center gap-1 text-xs border border-gray-200 rounded-lg px-4 py-2 text-gray-600 hover:bg-gray-50 transition-colors"
+            <div>
+              <input
+                type="email"
+                value={friendEmailInput}
+                onChange={(e) => {
+                  setFriendEmailInput(e.target.value);
+                  setEmailError(false);
+                }}
+                onKeyDown={(e) => e.key === "Enter" && handleAddFriend()}
+                placeholder="กรอกอีเมลของเพื่อนเพื่อเชิญเข้าร่วมกลุ่ม เช่น kitti_sak5187@gmail.com"
+                className="w-full text-xs border border-slate-200 rounded-xl px-4 py-3 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-navy-800 focus:ring-2 focus:ring-navy-800/10 transition-all"
+              />
+              {emailError && (
+                <div className="mt-2.5 flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-900 text-xs px-3.5 py-2 rounded-xl">
+                  <AlertCircle size={14} className="text-amber-600 shrink-0" />
+                  <span>ไม่พบบัญชีผู้ใช้นี้ในระบบ กรุณาตรวจสอบอีกครั้ง</span>
+                </div>
+              )}
+            </div>
+
+            {/* Utility actions (เพิ่ม/ลบสมาชิก) — เป็น secondary/danger ทั้งคู่ เพราะ primary ของหน้านี้คือ "ค้นหาห้องว่าง" ด้านล่าง */}
+            <div className="flex justify-end items-center gap-2.5 pt-3 border-t border-slate-100">
+              <Button variant="danger" size="sm" onClick={handleClearGroup}>
+                ลบกลุ่ม
+              </Button>
+              <Button variant="secondary" size="sm" icon={Plus} iconPosition="left" onClick={handleAddFriend}>
+                เพิ่มเพื่อน
+              </Button>
+            </div>
+          </Card>
+
+          <p className="text-xs text-muted italic">คุณมีเวลา 5 นาทีเพื่อรอให้สมาชิกเข้าร่วมกลุ่มครบทุกคน</p>
+
+          <div className="flex justify-center pt-2">
+            <Button
+              variant="primary"
+              size="lg"
+              icon={Search}
+              iconPosition="left"
+              onClick={handleSearchAvailableRooms}
+              className="w-full max-w-sm"
             >
-              <Plus size={13} /> เพิ่มเพื่อน
-            </button>
+              ค้นหาห้องว่าง
+            </Button>
           </div>
 
-          <div className="text-xs text-gray-500 mb-2">ห้องที่ว่างในช่วงเวลานี้</div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-            {["ห้องแล็บ 1", "ห้องแล็บ 2", "ห้องแล็บ 3", "ห้องแล็บ 4"].map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRoom(r)}
-                className="border rounded-lg py-3 text-xs transition-colors"
-                style={room === r ? { borderColor: NAVY, background: "#F4F5F8" } : { borderColor: "#e5e5e5" }}
-              >
-                {r}
-              </button>
-            ))}
-          </div>
+          {/* Loading — skeleton cards แทนข้อความ pulse เดิม ให้เห็นโครงผลลัพธ์ที่กำลังจะมา */}
+          {isSearchingRooms && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {[0, 1].map((i) => (
+                <div key={i} className="p-4 rounded-2xl border border-slate-200 bg-white space-y-3 animate-pulse">
+                  <div className="flex items-center justify-between">
+                    <div className="h-3.5 w-20 bg-slate-200 rounded-md" />
+                    <div className="h-5 w-5 rounded-full bg-slate-200" />
+                  </div>
+                  <div className="h-1.5 w-full bg-slate-100 rounded-full" />
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                    <div className="h-3 w-16 bg-slate-100 rounded-md" />
+                    <div className="h-3 w-14 bg-slate-100 rounded-md" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
-          <div className="flex justify-between gap-2">
-            <button type="button" onClick={() => setStep(1)} className="text-xs text-gray-500 border border-gray-200 rounded-lg px-4 py-2 hover:bg-gray-50">
+          {hasSearchedRooms && !isSearchingRooms && (
+            <Card className="p-5 md:p-6 space-y-4 animate-fade-in">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <span className="text-sm font-bold text-ink">เลือกห้องแล็บที่ต้องการจอง:</span>
+                <span className="text-caption">พบห้องว่าง {availableRooms.length} ห้อง</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {availableRooms.map((r) => {
+                  const isSelected = selectedRoom?.id === r.id;
+                  const occupancyPct = Math.round(((r.maxSeats - r.availableSeats) / r.maxSeats) * 100);
+                  const isFillingUp = r.availableSeats / r.maxSeats <= 0.3;
+
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setSelectedRoom(r)}
+                      className={`p-4 rounded-2xl border text-left transition-all duration-150 flex flex-col gap-3 ${
+                        isSelected
+                          ? "border-navy-800 bg-slate-50/80 shadow-md ring-2 ring-navy-800/10"
+                          : "border-slate-200 hover:border-slate-300 bg-white"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm text-ink">{r.name}</span>
+                        {isSelected ? (
+                          <div className="w-5 h-5 rounded-full flex items-center justify-center text-white shadow-sm bg-navy-800">
+                            <Check size={12} strokeWidth={3} />
+                          </div>
+                        ) : (
+                          <div className="w-5 h-5 rounded-full border border-slate-300" />
+                        )}
+                      </div>
+
+                      {/* แถบแสดงที่นั่งคงเหลือ — สื่อ "เหลือเยอะ/น้อย" ได้เร็วกว่าตัวเลขล้วน */}
+                      <div>
+                        <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-300 ${isFillingUp ? "bg-amber-500" : "bg-teal-500"}`}
+                            style={{ width: `${occupancyPct}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs pt-1">
+                        <div className="flex items-center gap-1.5 text-slate-500">
+                          <Users size={13} />
+                          <span>ความจุ {r.maxSeats} ที่นั่ง</span>
+                        </div>
+                        <span
+                          className={`font-medium px-2.5 py-0.5 rounded-full text-[11px] border ${
+                            isFillingUp
+                              ? "text-amber-700 bg-amber-50 border-amber-200/60"
+                              : "text-emerald-700 bg-emerald-50 border-emerald-200/60"
+                          }`}
+                        >
+                          ว่าง {r.availableSeats} ที่นั่ง
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex justify-end pt-3">
+                <Button variant="primary" icon={ArrowRight} disabled={!selectedRoom} onClick={() => setStep(3)}>
+                  ถัดไป: ตรวจสอบข้อมูล
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          <div className="flex justify-end pt-2">
+            <Button variant="secondary" onClick={() => setStep(1)}>
               ย้อนกลับและแก้ไข
-            </button>
-            <button type="button" disabled={!room} onClick={() => setStep(3)} className="text-white text-sm font-medium rounded-lg px-5 py-2.5 disabled:opacity-40" style={{ background: NAVY }}>
-              ถัดไป →
-            </button>
+            </Button>
           </div>
-        </Card>
+        </div>
       )}
 
-      {/* STEP 3: ตรวจสอบรายละเอียดก่อนยืนยัน */}
+      {/* STEP 3: ตรวจสอบข้อมูลก่อนยืนยัน */}
       {!isSubmitted && step === 3 && (
-        <div className="flex flex-col gap-5">
-          <h2 className="text-sm font-semibold text-gray-800">ยืนยันรายละเอียดการจอง</h2>
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-base font-bold text-ink tracking-tight">ยืนยันรายละเอียดการจอง</h2>
+            <p className="text-caption">กรุณาตรวจสอบความถูกต้องของข้อมูลก่อนกดยืนยัน</p>
+          </div>
 
-          <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm">
-            <div className="p-4 md:p-5 text-white" style={{ background: NAVY }}>
-              <h3 className="text-sm font-medium mb-1">รายละเอียดการจองของคุณ</h3>
-              <p className="text-xs text-blue-200 font-light">กรุณาตรวจสอบข้อมูลให้ครบถ้วนก่อนยืนยัน</p>
+          <div className="border border-slate-200/80 rounded-3xl overflow-hidden bg-white shadow-soft">
+            <div className="p-5 md:p-6 text-white bg-brand-gradient">
+              <h3 className="text-sm md:text-base font-bold mb-0.5">รายละเอียดสรุปการจองห้องปฏิบัติการ</h3>
+              <p className="text-xs text-slate-200 font-light">ข้อมูลสำหรับระบบตรวจสอบและบันทึกสิทธิ์</p>
             </div>
 
-            <div className="divide-y divide-gray-100 text-xs text-gray-700">
-              <div className="grid grid-cols-3 px-4 md:px-5 py-3.5 items-center">
-                <span className="text-gray-500">อีเมล:</span>
-                <span className="col-span-2 font-medium truncate">{userEmail}</span>
+            <div className="divide-y divide-slate-100 text-xs text-slate-700">
+              <div className="grid grid-cols-3 px-5 md:px-6 py-4 items-center">
+                <span className="text-muted font-medium">ผู้จองหลัก</span>
+                <span className="col-span-2 font-semibold text-ink truncate">{userEmail}</span>
               </div>
-              <div className="grid grid-cols-3 px-4 md:px-5 py-3.5 items-center">
-                <span className="text-gray-500">วันที่:</span>
-                <span className="col-span-2 font-medium">{formattedDate}</span>
+              <div className="grid grid-cols-3 px-5 md:px-6 py-4 items-center">
+                <span className="text-muted font-medium">วันที่จอง</span>
+                <span className="col-span-2 font-semibold text-ink">{formattedDate} ({DAYS_OF_WEEK[selectedDate.getDay()]})</span>
               </div>
-              <div className="grid grid-cols-3 px-4 md:px-5 py-3.5 items-center">
-                <span className="text-gray-500">เวลา:</span>
-                <span className="col-span-2 font-medium">{formatSlotDisplay(slot)}</span>
+              <div className="grid grid-cols-3 px-5 md:px-6 py-4 items-center">
+                <span className="text-muted font-medium">ช่วงเวลา</span>
+                <span className="col-span-2 font-semibold text-ink">{formatSlotDisplay(slot)}</span>
               </div>
-              <div className="grid grid-cols-3 px-4 md:px-5 py-3.5 items-center">
-                <span className="text-gray-500">ห้อง:</span>
-                <span className="col-span-2 font-medium">{room || "-"}</span>
-              </div>
-              <div className="grid grid-cols-3 px-4 md:px-5 py-3.5 items-center">
-                <span className="text-gray-500">เพื่อนร่วมกลุ่ม:</span>
-                <span className="col-span-2 font-medium">
-                  {friends.length > 0 ? friends.join(", ") : "-"}
+              <div className="grid grid-cols-3 px-5 md:px-6 py-4 items-center">
+                <span className="text-muted font-medium">ห้องที่เลือก</span>
+                <span className="col-span-2 font-semibold text-navy-800">
+                  {selectedRoom?.name} (ที่นั่งคงเหลือ {selectedRoom?.availableSeats} ที่นั่ง)
                 </span>
+              </div>
+              <div className="grid grid-cols-3 px-5 md:px-6 py-4 items-start">
+                <span className="text-muted font-medium">สมาชิกกลุ่ม ({friends.length} คน)</span>
+                <div className="col-span-2 space-y-1.5">
+                  {friends.length > 0 ? (
+                    friends.map((f) => (
+                      <div key={f.email} className="font-medium text-slate-800 flex items-center gap-2">
+                        <span>• {f.email}</span>
+                        <Pill tone={f.status === "joined" ? "green" : "amber"}>
+                          {f.status === "joined" ? "เข้าร่วมแล้ว" : "ยังไม่เข้าร่วม"}
+                        </Pill>
+                      </div>
+                    ))
+                  ) : (
+                    <span className="text-muted font-light">ไม่มีสมาชิกเพิ่มเติม (ใช้งานคนเดียว)</span>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="flex justify-between items-center mt-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setStep(2)}
-              className="text-xs text-gray-600 bg-white border border-gray-200 rounded-xl px-4 md:px-5 py-2.5 hover:bg-gray-50 transition-colors"
-            >
+          <div className="flex justify-between items-center pt-2">
+            <Button variant="secondary" onClick={() => setStep(2)}>
               ย้อนกลับและแก้ไข
-            </button>
-            <button
-              type="button"
-              onClick={handleConfirmBooking}
-              className="text-white text-xs font-medium rounded-xl px-5 md:px-6 py-2.5 flex items-center gap-2 shadow-sm transition-opacity"
-              style={{ background: NAVY }}
-            >
-              <span>ยืนยันการจอง</span>
-              <Check size={16} />
-            </button>
+            </Button>
+            <Button variant="primary" icon={Check} onClick={handleConfirmBooking}>
+              ยืนยันการจอง
+            </Button>
           </div>
         </div>
       )}
 
       {/* SUCCESS STATE */}
       {isSubmitted && (
-        <Card className="p-5 md:p-8 text-center flex flex-col items-center">
-          <div className="w-14 h-14 bg-emerald-500 rounded-full flex items-center justify-center text-white mb-3 shadow-md">
-            <Check size={32} strokeWidth={3} />
+        <Card className="p-6 md:p-10 text-center flex flex-col items-center animate-scale-in">
+          <div className="w-16 h-16 bg-emerald-500 text-white rounded-full flex items-center justify-center mb-4 shadow-lg shadow-emerald-500/20">
+            <Check size={36} strokeWidth={3} />
           </div>
 
-          <h2 className="text-base font-semibold text-gray-900 mb-1">ยืนยันการจองสำเร็จ!</h2>
-          <p className="text-xs text-gray-500 mb-6">การจองของคุณได้รับการยืนยันแล้ว</p>
+          <h2 className="text-lg md:text-xl font-bold text-ink mb-1">ยืนยันการจองสำเร็จ!</h2>
+          <p className="text-xs md:text-sm text-muted mb-7">ข้อมูลการจองของคุณได้รับการบันทึกลงสู่ระบบเรียบร้อยแล้ว</p>
 
-          <div className="w-full max-w-2xl border border-gray-200 rounded-2xl overflow-hidden bg-gray-50/50 text-left mb-6">
-            <div className="p-3.5 md:p-4 bg-gray-100/70 border-b border-gray-200">
-              <h3 className="text-xs font-semibold text-gray-800">รายละเอียดการจองของคุณ</h3>
+          <div className="w-full max-w-2xl border border-slate-200 rounded-2xl overflow-hidden bg-slate-50/50 text-left mb-6">
+            <div className="p-4 bg-slate-100/70 border-b border-slate-200">
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">รายละเอียดการจองของคุณ</h3>
             </div>
-            <div className="divide-y divide-gray-200/60 text-xs text-gray-700">
-              <div className="grid grid-cols-3 px-4 md:px-5 py-3">
-                <span className="text-gray-500">อีเมล:</span>
+            <div className="divide-y divide-slate-200/60 text-xs text-slate-700">
+              <div className="grid grid-cols-3 px-5 py-3.5">
+                <span className="text-slate-500">อีเมล</span>
                 <span className="col-span-2 font-medium truncate">{userEmail}</span>
               </div>
-              <div className="grid grid-cols-3 px-4 md:px-5 py-3">
-                <span className="text-gray-500">วันที่:</span>
+              <div className="grid grid-cols-3 px-5 py-3.5">
+                <span className="text-slate-500">วันที่</span>
                 <span className="col-span-2 font-medium">{formattedDate}</span>
               </div>
-              <div className="grid grid-cols-3 px-4 md:px-5 py-3">
-                <span className="text-gray-500">เวลา:</span>
+              <div className="grid grid-cols-3 px-5 py-3.5">
+                <span className="text-slate-500">ช่วงเวลา</span>
                 <span className="col-span-2 font-medium">{formatSlotDisplay(slot)}</span>
               </div>
-              <div className="grid grid-cols-3 px-4 md:px-5 py-3">
-                <span className="text-gray-500">ห้อง:</span>
-                <span className="col-span-2 font-medium">{room || "-"}</span>
+              <div className="grid grid-cols-3 px-5 py-3.5">
+                <span className="text-slate-500">ห้องแล็บ</span>
+                <span className="col-span-2 font-medium">{selectedRoom?.name || "-"}</span>
               </div>
-              <div className="grid grid-cols-3 px-4 md:px-5 py-3">
-                <span className="text-gray-500">เพื่อนร่วมกลุ่ม:</span>
+              <div className="grid grid-cols-3 px-5 py-3.5">
+                <span className="text-slate-500">เพื่อนร่วมกลุ่ม</span>
                 <span className="col-span-2 font-medium">
-                  {friends.length > 0 ? friends.join(", ") : "-"}
+                  {friends.length > 0 ? friends.map(f => f.email).join(", ") : "-"}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="w-full max-w-2xl bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-center gap-3 text-left mb-8">
-            <div className="w-7 h-7 rounded-full bg-amber-400 text-white flex items-center justify-center shrink-0">
+          <div className="w-full max-w-2xl bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-center gap-3.5 text-left mb-8">
+            <div className="w-8 h-8 rounded-full bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm">
               <AlertTriangle size={16} />
             </div>
-            <span className="text-xs text-amber-900 font-medium">
-              หากคุณไม่มาใช้ห้องแล็บตามเวลาที่จองไว้ คุณจะถูกหักคะแนน 5 คะแนน
+            <span className="text-xs text-amber-900 font-medium leading-relaxed">
+              หากคุณไม่มาใช้ห้องแล็บตามเวลาที่จองไว้โดยไม่ยกเลิกล่วงหน้า คุณจะถูกหักคะแนนพฤติกรรมการใช้งาน 5 คะแนน
             </span>
           </div>
 
           <div className="flex flex-col sm:flex-row justify-end gap-3 w-full max-w-2xl">
-            <button
-              type="button"
-              onClick={handleReset}
-              className="text-xs text-gray-700 bg-white border border-gray-200 rounded-xl px-4 py-2.5 flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors"
-            >
-              <CalendarPlus size={15} />
-              <span>จองห้องแล็บเพิ่ม</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleBackToHome}
-              className="text-white text-xs font-medium rounded-xl px-5 py-2.5 transition-opacity"
-              style={{ background: NAVY }}
-            >
+            <Button variant="secondary" icon={CalendarPlus} iconPosition="left" onClick={handleReset}>
+              จองห้องแล็บเพิ่ม
+            </Button>
+            <Button variant="primary" onClick={handleBackToHome}>
               กลับสู่หน้าหลัก
-            </button>
+            </Button>
           </div>
         </Card>
       )}

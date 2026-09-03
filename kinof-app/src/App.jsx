@@ -12,8 +12,10 @@ import {
 } from "lucide-react";
 
 import Sidebar from "./components/Sidebar";
+import TopBar from "./components/TopBar";
 import Toast from "./components/Toast";
 import Login from "./pages/Login";
+import { BG_APP } from "./theme";
 
 import UserHome from "./pages/user/UserHome";
 import BookRoom from "./pages/user/BookRoom";
@@ -48,6 +50,7 @@ export default function App() {
   const [role, setRole] = useState(null);
   const [page, setPage] = useState("home");
   const [toast, setToast] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer state
   const notify = (t) => setToast(t);
 
   const [myBookings, setMyBookings] = useState([
@@ -65,22 +68,30 @@ export default function App() {
   const handleLogout = () => {
     setStage("login");
     setRole(null);
+    setSidebarOpen(false);
   };
 
   if (stage === "login") return <Login onLogin={handleLogin} />;
 
+  // Centralized here instead of re-declared in every page — also the single
+  // place TopBar's mobile menu button and display name need to be wired.
+  const userDisplayName = role === "admin" ? "ผู้ดูแลระบบ" : "สมหญิง ส.";
+
   return (
-    <div className="flex flex-col md:flex-row min-h-screen w-full" style={{ background: "#F4F5F8" }}>
+    <div className="flex min-h-screen w-full" style={{ background: BG_APP }}>
       <Sidebar
         items={role === "admin" ? ADMIN_NAV : USER_NAV}
         page={page}
         setPage={setPage}
         roleLabel={role === "admin" ? "ระบบดูแลและจองห้องแล็บ" : "ระบบจองห้องแล็บ"}
         onLogout={handleLogout}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
-      
-      {/* แก้ไขบรรทัดนี้: ให้ขยายเต็มพื้นที่จอ (Full-Width) */}
+
       <div className="flex-1 p-4 md:p-8 w-full min-w-0">
+        <TopBar name={userDisplayName} onMenuClick={() => setSidebarOpen(true)} />
+
         {/* User Pages */}
         {role === "user" && page === "home" && (
           <UserHome setPage={setPage} myBookings={myBookings} />
