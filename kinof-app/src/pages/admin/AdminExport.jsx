@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { FileSpreadsheet } from "lucide-react";
-import TopBar from "../../components/TopBar";
 import Card from "../../components/Card";
 import { NAVY } from "../../theme";
 
@@ -18,7 +17,6 @@ export default function AdminExport({ notify }) {
 
   return (
     <div>
-      <TopBar name="แอดมิน สมชาย" />
       <h1 className="text-lg font-medium text-gray-900 mb-4">ส่งออกข้อมูล</h1>
       <Card className="p-5">
         <div className="flex gap-3 mb-5">

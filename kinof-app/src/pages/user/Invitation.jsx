@@ -13,18 +13,19 @@ const initialInvitations = [
   },
 ];
 
-export default function Invitation({ notify, addBooking }) {
+export default function Invitation({ notify, onInvitationAccepted }) {
   const [invitations, setInvitations] = useState(initialInvitations);
 
   const handleAccept = (item) => {
     setInvitations((prev) => prev.filter((inv) => inv.id !== item.id));
-    if (addBooking) {
-      addBooking({
-        date: item.date,
-        slot: item.time,
-        room: item.room || "ห้องแล็บ 4",
-      });
-    }
+    onInvitationAccepted?.({
+      id: `invitation-${item.id}`,
+      date: item.date,
+      slot: item.time,
+      room: item.room || "ห้องแล็บ 4",
+      status: "confirmed",
+      source: "mock-invitation",
+    });
     if (notify) notify("ยอมรับคำเชิญเข้าร่วมกลุ่มเรียบร้อยแล้ว");
   };
 

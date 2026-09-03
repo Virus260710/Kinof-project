@@ -16,6 +16,8 @@ import {
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import Button from "../../components/Button";
+import { BOOKING_SLOTS, createBooking, getAvailableRooms, slotToRange } from "../../api/bookings";
+import { bookingScheduleConflicts, bookingUsers } from "../../data/mockData";
 
 const THAI_MONTHS = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -26,43 +28,10 @@ const DAYS_OF_WEEK = [
   "วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"
 ];
 
-const morningSlots = [
-  "รอบที่ 1 09.00 น. - 11.30 น.",
-  "รอบที่ 2 11.30 น. - 14.00 น."
-];
+const morningSlots = BOOKING_SLOTS.slice(0, 2);
+const afternoonSlots = BOOKING_SLOTS.slice(2);
 
-const afternoonSlots = [
-  "รอบที่ 3 14.00 น. - 16.30 น.",
-  "รอบที่ 4 16.30 น. - 19.00 น."
-];
-
-const userScheduleData = [
-  { day: "วันจันทร์", course: "IT319 / Low-Code and No-Code Development", slot: "รอบที่ 1 09.00 น. - 11.30 น." },
-  { day: "วันจันทร์", course: "IT320 / Web Application Development", slot: "รอบที่ 3 14.00 น. - 16.30 น." },
-  { day: "วันพุธ", course: "IT453 / RPA Development", slot: "รอบที่ 3 14.00 น. - 16.30 น." },
-  { day: "วันพฤหัสบดี", course: "IT464 / Web Administration", slot: "รอบที่ 4 16.30 น. - 19.00 น." }
-];
-
-const mockUsersList = [
-  { name: "กิตติ ศักดิ์", email: "kitti_sak5187@gmail.com", status: "joined" },
-  { name: "ไฟท์", email: "fighteiei@gmail.com", status: "pending" },
-  { name: "วรากร ใจดี", email: "warakorn@gmail.com", status: "joined" },
-  { name: "ปิยะนันท์ บุญมี", email: "piyanan@gmail.com", status: "pending" },
-  { name: "ธนภัทร วงศ์ษา", email: "thanaphat@gmail.com", status: "joined" }
-];
-
-const mockRoomsData = [
-  { id: "room-1", name: "ห้องแล็บ 1", maxSeats: 30, availableSeats: 25 },
-  { id: "room-2", name: "ห้องแล็บ 2", maxSeats: 30, availableSeats: 12 },
-  { id: "room-3", name: "ห้องแล็บ 3", maxSeats: 20, availableSeats: 8 },
-  { id: "room-4", name: "ห้องแล็บ 4", maxSeats: 25, availableSeats: 18 }
-];
-
-const initialBookings = [
-  { date: "10 เมษายน 2569", slot: "รอบที่ 1 09.00 น. - 11.30 น.", room: "ห้องแล็บ 1" }
-];
-
-export default function BookRoom({ addBooking, notify, existingBookings = [], setPage }) {
+export default function BookRoom({ onBookingCreated, notify, existingBookings = [], setPage, auth }) {
   const [step, setStep] = useState(1);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -80,14 +49,16 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
   const [isSearchingRooms, setIsSearchingRooms] = useState(false);
   const [availableRooms, setAvailableRooms] = useState([]);
   const [selectedRoom, setSelectedRoom] = useState(null);
+  const [requestError, setRequestError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [bookingsList, setBookingsList] = useState([...initialBookings, ...existingBookings]);
+  const [bookingsList, setBookingsList] = useState([...existingBookings]);
 
   useEffect(() => {
-    setBookingsList([...initialBookings, ...existingBookings]);
+    setBookingsList([...existingBookings]);
   }, [existingBookings]);
 
-  const userEmail = "somy@gmail.com";
+  const userEmail = auth?.user?.email ?? "—";
   const steps = ["1. เลือกวัน-เวลา", "2. จัดการสมาชิก-ดูห้อง", "3. ยืนยันการจอง"];
   const formattedDate = `${selectedDate.getDate()} ${THAI_MONTHS[selectedDate.getMonth()]} ${selectedDate.getFullYear() + 543}`;
 
@@ -101,12 +72,21 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
   };
 
   const isSlotBooked = (checkSlot) => {
-    return bookingsList.some((b) => b.date === formattedDate && b.slot === checkSlot);
+    const { start, end } = slotToRange(selectedDate, checkSlot);
+    return bookingsList.some((booking) => {
+      if (booking.startTime && booking.endTime) {
+        return new Date(booking.startTime).getTime() === start.getTime()
+          && new Date(booking.endTime).getTime() === end.getTime();
+      }
+      return booking.date === formattedDate && booking.slot === checkSlot.label;
+    });
   };
 
   const getSlotClassConflict = (checkSlot) => {
     const selectedDayName = DAYS_OF_WEEK[selectedDate.getDay()];
-    return userScheduleData.find((s) => s.day === selectedDayName && s.slot === checkSlot);
+    return bookingScheduleConflicts.find((item) => (
+      item.day === selectedDayName && item.slotId === checkSlot.id
+    ));
   };
 
   const handleSelectDate = (date) => {
@@ -173,7 +153,7 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
       return;
     }
 
-    const foundUser = mockUsersList.find((u) => u.email.toLowerCase() === trimmed);
+    const foundUser = bookingUsers.find((u) => u.email.toLowerCase() === trimmed);
     if (foundUser) {
       setFriends([...friends, foundUser]);
       setFriendEmailInput("");
@@ -194,26 +174,47 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
     if (notify) notify("ลบรายชื่อสมาชิกในกลุ่มทั้งหมดแล้ว");
   };
 
-  const handleSearchAvailableRooms = () => {
+  const handleSearchAvailableRooms = async () => {
+    if (!slot) return;
     setIsSearchingRooms(true);
-    setTimeout(() => {
-      setAvailableRooms(mockRoomsData);
+    setRequestError("");
+    setSelectedRoom(null);
+    try {
+      const { start, end } = slotToRange(selectedDate, slot);
+      const rooms = await getAvailableRooms(start, end);
+      setAvailableRooms(rooms);
       setHasSearchedRooms(true);
+    } catch (error) {
+      setAvailableRooms([]);
+      setHasSearchedRooms(false);
+      setRequestError(error.message);
+      notify?.(error.message);
+    } finally {
       setIsSearchingRooms(false);
-    }, 300);
+    }
   };
 
-  const handleConfirmBooking = () => {
-    const newBooking = {
-      date: formattedDate,
-      slot,
-      room: selectedRoom?.name,
-      friends: friends.map(f => `${f.name || f.email} (${f.email})`)
-    };
-    setBookingsList((prev) => [...prev, newBooking]);
-    if (addBooking) addBooking(newBooking);
-    if (notify) notify("ยืนยันการจองห้องแล็บเรียบร้อยแล้ว");
-    setIsSubmitted(true);
+  const handleConfirmBooking = async () => {
+    if (!selectedRoom || !slot) return;
+    setIsSubmitting(true);
+    setRequestError("");
+    try {
+      const { start, end } = slotToRange(selectedDate, slot);
+      const booking = await createBooking({
+        roomId: selectedRoom.id,
+        startTime: start,
+        endTime: end,
+      });
+      setBookingsList((prev) => [...prev, booking]);
+      onBookingCreated?.(booking);
+      notify?.("ยืนยันการจองห้องแล็บเรียบร้อยแล้ว");
+      setIsSubmitted(true);
+    } catch (error) {
+      setRequestError(error.message);
+      notify?.(error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleReset = () => {
@@ -225,6 +226,7 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
     setFriends([]);
     setFriendEmailInput("");
     setEmailError(false);
+    setRequestError("");
   };
 
   const handleBackToHome = () => {
@@ -233,32 +235,33 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
 
   const calendarDays = generateCalendarDays();
 
-  const renderSlotButton = (s) => {
-    const booked = isSlotBooked(s);
-    const classConflict = getSlotClassConflict(s);
+  const renderSlotButton = (slotOption) => {
+    const booked = isSlotBooked(slotOption);
+    const classConflict = getSlotClassConflict(slotOption);
     const isDisabled = booked || !!classConflict;
 
     return (
       <button
         type="button"
-        key={s}
+        key={slotOption.id}
         disabled={isDisabled}
         onClick={() => {
-          setSlot(s);
+          setSlot(slotOption);
           setHasSearchedRooms(false);
           setSelectedRoom(null);
+          setRequestError("");
         }}
         className={`text-xs text-left rounded-xl px-4 py-3 border transition-all duration-150 flex items-center justify-between ${
           classConflict
             ? "bg-rose-50/50 border-rose-200 text-rose-400 cursor-not-allowed"
             : booked
             ? "bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed"
-            : slot === s
+            : slot?.id === slotOption.id
             ? "text-white font-medium shadow-blue-glow scale-[1.01] bg-navy-800 border-navy-800"
             : "border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50 bg-white"
         }`}
       >
-        <span className="font-medium">{s}</span>
+        <span className="font-medium">{slotOption.label}</span>
         {classConflict ? (
           <span className="text-[10px] bg-rose-100 text-rose-700 font-medium px-2.5 py-0.5 rounded-full" title={classConflict.course}>
             ติดเรียน
@@ -512,6 +515,12 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
             </div>
           )}
 
+          {requestError && (
+            <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3" role="alert">
+              {requestError}
+            </div>
+          )}
+
           {hasSearchedRooms && !isSearchingRooms && (
             <Card className="p-5 md:p-6 space-y-4 animate-fade-in">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -520,10 +529,13 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {availableRooms.length === 0 && (
+                  <div className="sm:col-span-2 text-xs text-muted text-center py-8">
+                    ไม่มีห้องว่างในช่วงเวลานี้
+                  </div>
+                )}
                 {availableRooms.map((r) => {
                   const isSelected = selectedRoom?.id === r.id;
-                  const occupancyPct = Math.round(((r.maxSeats - r.availableSeats) / r.maxSeats) * 100);
-                  const isFillingUp = r.availableSeats / r.maxSeats <= 0.3;
 
                   return (
                     <button
@@ -551,8 +563,8 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
                       <div>
                         <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
                           <div
-                            className={`h-full rounded-full transition-all duration-300 ${isFillingUp ? "bg-amber-500" : "bg-teal-500"}`}
-                            style={{ width: `${occupancyPct}%` }}
+                            className="h-full rounded-full transition-all duration-300 bg-teal-500"
+                            style={{ width: "100%" }}
                           />
                         </div>
                       </div>
@@ -560,16 +572,10 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
                       <div className="flex items-center justify-between text-xs pt-1">
                         <div className="flex items-center gap-1.5 text-slate-500">
                           <Users size={13} />
-                          <span>ความจุ {r.maxSeats} ที่นั่ง</span>
+                          <span>ความจุ {r.capacity} ที่นั่ง</span>
                         </div>
-                        <span
-                          className={`font-medium px-2.5 py-0.5 rounded-full text-[11px] border ${
-                            isFillingUp
-                              ? "text-amber-700 bg-amber-50 border-amber-200/60"
-                              : "text-emerald-700 bg-emerald-50 border-emerald-200/60"
-                          }`}
-                        >
-                          ว่าง {r.availableSeats} ที่นั่ง
+                        <span className="font-medium px-2.5 py-0.5 rounded-full text-[11px] border text-emerald-700 bg-emerald-50 border-emerald-200/60">
+                          พร้อมจอง
                         </span>
                       </div>
                     </button>
@@ -618,12 +624,12 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
               </div>
               <div className="grid grid-cols-3 px-5 md:px-6 py-4 items-center">
                 <span className="text-muted font-medium">ช่วงเวลา</span>
-                <span className="col-span-2 font-semibold text-ink">{formatSlotDisplay(slot)}</span>
+                <span className="col-span-2 font-semibold text-ink">{formatSlotDisplay(slot?.label)}</span>
               </div>
               <div className="grid grid-cols-3 px-5 md:px-6 py-4 items-center">
                 <span className="text-muted font-medium">ห้องที่เลือก</span>
                 <span className="col-span-2 font-semibold text-navy-800">
-                  {selectedRoom?.name} (ที่นั่งคงเหลือ {selectedRoom?.availableSeats} ที่นั่ง)
+                  {selectedRoom?.name} (รองรับ {selectedRoom?.capacity} ที่นั่ง)
                 </span>
               </div>
               <div className="grid grid-cols-3 px-5 md:px-6 py-4 items-start">
@@ -650,8 +656,8 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
             <Button variant="secondary" onClick={() => setStep(2)}>
               ย้อนกลับและแก้ไข
             </Button>
-            <Button variant="primary" icon={Check} onClick={handleConfirmBooking}>
-              ยืนยันการจอง
+            <Button variant="primary" icon={Check} disabled={isSubmitting} onClick={handleConfirmBooking}>
+              {isSubmitting ? "กำลังยืนยัน..." : "ยืนยันการจอง"}
             </Button>
           </div>
         </div>
@@ -682,7 +688,7 @@ export default function BookRoom({ addBooking, notify, existingBookings = [], se
               </div>
               <div className="grid grid-cols-3 px-5 py-3.5">
                 <span className="text-slate-500">ช่วงเวลา</span>
-                <span className="col-span-2 font-medium">{formatSlotDisplay(slot)}</span>
+                <span className="col-span-2 font-medium">{formatSlotDisplay(slot?.label)}</span>
               </div>
               <div className="grid grid-cols-3 px-5 py-3.5">
                 <span className="text-slate-500">ห้องแล็บ</span>

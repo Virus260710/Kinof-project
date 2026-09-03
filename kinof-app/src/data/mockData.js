@@ -41,9 +41,24 @@ export const scheduleRows = [
   { day: "วันเสาร์", course: "", time: "", room: "" },
 ];
 
-export const timeSlots = [
-  "รอบที่ 1  09.00 น. - 11.30 น.",
-  "รอบที่ 2  11.30 น. - 14.00 น.",
-  "รอบที่ 3  14.00 น. - 16.30 น.",
-  "รอบที่ 4  16.30 น. - 19.00 น.",
+// TODO(backend): GET /api/schedule/me
+export const bookingScheduleConflicts = [
+  { day: "วันจันทร์", course: "IT319 / Low-Code and No-Code Development", slotId: 1 },
+  { day: "วันจันทร์", course: "IT320 / Web Application Development", slotId: 3 },
+  { day: "วันพุธ", course: "IT453 / RPA Development", slotId: 3 },
+  { day: "วันพฤหัสบดี", course: "IT464 / Web Administration", slotId: 4 },
+];
+
+// TODO(backend): invitation/member lookup API
+export const bookingUsers = [
+  { name: "กิตติ ศักดิ์", email: "kitti_sak5187@gmail.com", status: "joined" },
+  { name: "ไฟท์", email: "fighteiei@gmail.com", status: "pending" },
+  { name: "วรากร ใจดี", email: "warakorn@gmail.com", status: "joined" },
+  { name: "ปิยะนันท์ บุญมี", email: "piyanan@gmail.com", status: "pending" },
+  { name: "ธนภัทร วงศ์ษา", email: "thanaphat@gmail.com", status: "joined" },
+];
+
+// TODO(backend): profile score and penalty-history endpoints
+export const penaltyHistory = [
+  { id: 1, date: "2 เมษายน 2569", points: 5, reason: "ไม่มาใช้ห้องแล็บตามวัน-เวลาที่จองไว้" },
 ];

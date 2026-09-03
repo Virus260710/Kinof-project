@@ -2,23 +2,14 @@ import React from "react";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import { User, Mail, Hash, BookOpen, AlertCircle, Award } from "lucide-react";
+import { penaltyHistory, scheduleRows as mockScheduleRows } from "../../data/mockData";
 
-const myScheduleRows = [
-  { day: "วันจันทร์", course: "IT319 / Low-Code and No-Code Development Platform", time: "09.00 น. - 11.30 น.", room: "ห้องแล็บ 1" },
-  { day: "วันจันทร์", course: "IT320 / Web Application Development", time: "13.30 น. - 16.00 น.", room: "ห้องแล็บ 3" },
-  { day: "วันอังคาร", course: "— ไม่มีคาบเรียน —", time: "", room: "" },
-  { day: "วันพุธ", course: "IT453 / Robotic Process Automation Development", time: "14.00 น. - 16.30 น.", room: "ห้องแล็บ 3" },
-  { day: "วันพฤหัสบดี", course: "IT464 / Web Administration", time: "16.30 น. - 19.00 น.", room: "ห้องแล็บ 2" },
-  { day: "วันศุกร์", course: "— ไม่มีคาบเรียน —", time: "", room: "" },
-  { day: "วันเสาร์", course: "— ไม่มีคาบเรียน —", time: "", room: "" }
-];
-
-const initialPenaltyHistory = [
-  { id: 1, date: "2 เมษายน 2569", points: 5, reason: "ไม่มาใช้ห้องแล็บตามวัน-เวลาที่จองไว้" },
-];
-
-export default function UserProfile({ scheduleRows = myScheduleRows, userScore = 95 }) {
-  const penaltyHistory = initialPenaltyHistory;
+// TODO(backend): replace scheduleRows after GET /api/schedule/me is available.
+// TODO(backend): replace score and penalty history when profile-stat endpoints are available.
+export default function UserProfile({ auth, scheduleRows = mockScheduleRows, userScore = 95 }) {
+  const user = auth?.user;
+  const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "ผู้ใช้งาน";
+  const userTypeLabel = user?.userType === "student" ? "นักศึกษา" : "บุคคลภายนอก";
   const scoreBarClass = userScore >= 80 ? "bg-teal-500" : userScore >= 50 ? "bg-gold-gradient" : "bg-rose-500";
 
   return (
@@ -35,14 +26,14 @@ export default function UserProfile({ scheduleRows = myScheduleRows, userScore =
           <div>
             <div className="flex items-center gap-4 mb-6">
               <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-navy-900 font-bold text-xl shadow-md shrink-0 bg-gold-gradient">
-                ส
+                {user?.firstName?.[0] ?? "ผ"}
               </div>
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <h2 className="font-bold text-ink text-base md:text-lg">สมหญิง สวยงาม</h2>
-                  <Pill tone="blue" withDot>นักศึกษา</Pill>
+                  <h2 className="font-bold text-ink text-base md:text-lg">{fullName}</h2>
+                  <Pill tone="blue" withDot>{userTypeLabel}</Pill>
                 </div>
-                <p className="text-caption">คณะเทคโนโลยีสารสนเทศและนวัตกรรม</p>
+                <p className="text-caption">ข้อมูลบัญชีจากระบบ KINOF</p>
               </div>
             </div>
 
@@ -51,15 +42,15 @@ export default function UserProfile({ scheduleRows = myScheduleRows, userScore =
                 <Mail size={15} className="text-slate-400 shrink-0" />
                 <div>
                   <span className="text-muted block text-[10px]">อีเมลมหาวิทยาลัย</span>
-                  <span className="text-slate-800 font-medium">somy@gmail.com</span>
+                  <span className="text-slate-800 font-medium">{user?.email ?? "—"}</span>
                 </div>
               </div>
 
               <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/70 border border-slate-100">
                 <User size={15} className="text-slate-400 shrink-0" />
                 <div>
-                  <span className="text-muted block text-[10px]">ชื่อบัญชีผู้ใช้</span>
-                  <span className="text-slate-800 font-medium">som_ying</span>
+                  <span className="text-muted block text-[10px]">ประเภทผู้ใช้งาน</span>
+                  <span className="text-slate-800 font-medium">{user?.userType ?? "—"}</span>
                 </div>
               </div>
 
@@ -67,7 +58,7 @@ export default function UserProfile({ scheduleRows = myScheduleRows, userScore =
                 <Hash size={15} className="text-slate-400 shrink-0" />
                 <div>
                   <span className="text-muted block text-[10px]">รหัสประจำตัว</span>
-                  <span className="text-slate-800 font-medium">0005</span>
+                  <span className="text-slate-800 font-medium">{user?.studentId ?? "—"}</span>
                 </div>
               </div>
 
