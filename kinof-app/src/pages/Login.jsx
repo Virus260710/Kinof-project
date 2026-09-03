@@ -1,18 +1,29 @@
 import React, { useState } from "react";
-import { Users, ShieldAlert, ArrowLeft, Mail, Lock, Chrome, Facebook } from "lucide-react";
+import { Users, ShieldAlert, ArrowLeft, Mail, Lock, Chrome } from "lucide-react";
+import { Link } from "react-router-dom";
 import Card from "../components/Card";
 import { NAVY, GOLD } from "../theme";
+import { login } from "../api/auth";
 
-export default function Login({ onLogin }) {
+export default function Login({ onOtpRequired }) {
   const [roleChoice, setRoleChoice] = useState(null);
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [pw, setPw] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  // TODO(backend): replace with POST /api/auth/login { email, password, role }
-  // and POST /api/auth/oauth/google or /facebook for the OAuth buttons.
-  // On success the API should return { token, user: { name, role } }.
-  const fakeLogin = (r) => {
-    onLogin(r, r === "admin" ? "แอดมิน สมชาย" : "สมหญิง ส.");
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const result = await login(username, pw);
+      onOtpRequired({ ...result, expectedRole: roleChoice });
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!roleChoice) {
@@ -64,13 +75,16 @@ export default function Login({ onLogin }) {
         <h2 className="text-lg font-medium text-gray-900 mt-4">{isAdmin ? "เข้าสู่ระบบผู้ดูแลระบบ" : "เข้าสู่ระบบผู้ใช้งาน"}</h2>
         <p className="text-xs text-gray-500 mb-5">{isAdmin ? "สำหรับเจ้าหน้าที่ดูแลระบบห้องปฏิบัติการ" : "นักศึกษาและบุคคลภายนอกเข้าสู่ระบบที่นี่"}</p>
 
+        <form onSubmit={handleSubmit}>
         <div className="flex flex-col gap-2.5 mb-5">
           <div className="relative">
             <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="อีเมล"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="ชื่อผู้ใช้หรืออีเมล"
+              autoComplete="username"
+              required
               className="w-full text-sm border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 focus:outline-none focus:border-gray-400"
             />
           </div>
@@ -81,14 +95,22 @@ export default function Login({ onLogin }) {
               onChange={(e) => setPw(e.target.value)}
               type="password"
               placeholder="รหัสผ่าน"
+              autoComplete="current-password"
+              required
               className="w-full text-sm border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 focus:outline-none focus:border-gray-400"
             />
           </div>
+          <Link to="/forgot-password" className="self-end text-xs text-gray-500 underline hover:text-gray-700">
+            ลืมรหัสผ่าน?
+          </Link>
         </div>
 
-        <button onClick={() => fakeLogin(roleChoice)} className="w-full text-white text-sm font-medium rounded-lg py-2.5 mb-4" style={{ background: NAVY }}>
-          เข้าสู่ระบบ
+        {error && <p className="text-xs text-red-600 mb-3" role="alert">{error}</p>}
+
+        <button disabled={loading} className="w-full text-white text-sm font-medium rounded-lg py-2.5 mb-4 disabled:opacity-60" style={{ background: NAVY }}>
+          {loading ? "กำลังส่ง OTP..." : "เข้าสู่ระบบ"}
         </button>
+        </form>
 
         <div className="flex items-center gap-3 mb-4">
           <div className="h-px bg-gray-200 flex-1" />
@@ -97,17 +119,15 @@ export default function Login({ onLogin }) {
         </div>
 
         <div className="flex flex-col gap-2">
-          <button onClick={() => fakeLogin(roleChoice)} className="w-full flex items-center justify-center gap-2 border border-gray-200 rounded-lg py-2.5 text-sm text-gray-700 hover:bg-gray-50">
-            <Chrome size={16} /> เข้าสู่ระบบด้วย Google
-          </button>
-          <button onClick={() => fakeLogin(roleChoice)} className="w-full flex items-center justify-center gap-2 border border-gray-200 rounded-lg py-2.5 text-sm text-gray-700 hover:bg-gray-50">
-            <Facebook size={16} /> เข้าสู่ระบบด้วย Facebook
+          <button disabled className="w-full flex items-center justify-center gap-2 border border-gray-200 rounded-lg py-2.5 text-sm text-gray-400 cursor-not-allowed">
+            <Chrome size={16} /> Google (เร็ว ๆ นี้)
           </button>
         </div>
 
         {!isAdmin && (
           <p className="text-xs text-gray-400 text-center mt-5">
-            บุคคลภายนอกที่ยังไม่มีบัญชี <span className="text-gray-600 underline cursor-pointer">สมัครสมาชิกที่นี่</span>
+            ยังไม่มีบัญชี{" "}
+            <Link to="/register" className="text-gray-600 underline">สมัครสมาชิกที่นี่</Link>
           </p>
         )}
       </Card>

@@ -5,8 +5,9 @@ import Pill from "../../components/Pill";
 import Button from "../../components/Button";
 import { TEAL } from "../../theme";
 
-export default function UserHome({ setPage, myBookings = [] }) {
-  const latest = myBookings.length > 0 ? myBookings[myBookings.length - 1] : null;
+export default function UserHome({ setPage, myBookings = [], auth }) {
+  const latest = myBookings.length > 0 ? myBookings[0] : null;
+  const displayName = auth?.user?.firstName ? `คุณ${auth.user.firstName}` : "ยินดีต้อนรับ";
 
   return (
     <div className="w-full max-w-6xl mx-auto">
@@ -16,14 +17,17 @@ export default function UserHome({ setPage, myBookings = [] }) {
         <p className="text-caption mt-0.5">ภาพรวมการจองและกิจกรรมล่าสุดของคุณ</p>
       </div>
 
-      {/* Hero Welcome Banner — carries the page's one primary action */}
+      {/* Hero Welcome Banner */}
       <div className="relative overflow-hidden rounded-3xl text-white p-6 md:p-7 mb-7 shadow-blue-glow border border-navy-700/30 bg-brand-gradient">
         <div className="relative z-10 flex flex-col md:flex-row md:items-end md:justify-between gap-5">
           <div className="max-w-xl">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-gold-400 text-xs font-medium mb-3 backdrop-blur-md border border-white/10">
+              <Sparkles size={14} />
               <span>ระบบจองห้องแล็บ KINOF</span>
             </div>
-            <h2 className="font-bold text-lg md:text-2xl mb-1.5 tracking-tight text-white">ยินดีต้อนรับ, คุณสมหญิง!</h2>
+            <h2 className="font-bold text-lg md:text-2xl mb-1.5 tracking-tight text-white">
+              {displayName}!
+            </h2>
             <p className="text-xs md:text-sm text-white/80 font-light leading-relaxed">
               ตรวจสอบสถานะห้องแล็บ จัดการกลุ่มเพื่อน หรือเริ่มต้นจองพื้นที่เพื่อการเรียนรู้และการทำโครงงานได้ตลอด 24 ชั่วโมง
             </p>
@@ -80,7 +84,7 @@ export default function UserHome({ setPage, myBookings = [] }) {
           </div>
         </Card>
 
-        {/* การ์ด 2: จองห้องแล็บใหม่ — ปุ่ม secondary เพราะ primary CTA อยู่บน hero แล้ว */}
+        {/* การ์ด 2: จองห้องแล็บใหม่ */}
         <Card className="p-5 md:p-6 flex flex-col justify-between hover:border-slate-300 transition-all duration-200">
           <div>
             <div className="text-xs font-semibold text-muted uppercase tracking-wider mb-2 flex items-center gap-2">
@@ -142,7 +146,7 @@ export default function UserHome({ setPage, myBookings = [] }) {
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {myBookings.map((b, i) => (
-                    <tr key={i} className="hover:bg-slate-50/60 transition-colors">
+                    <tr key={b.id || i} className="hover:bg-slate-50/60 transition-colors">
                       <td className="py-3.5 px-5 font-medium text-ink">{b.date}</td>
                       <td className="py-3.5 px-5 text-slate-600">{b.slot}</td>
                       <td className="py-3.5 px-5 font-medium text-slate-800">{b.room}</td>
