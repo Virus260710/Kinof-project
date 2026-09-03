@@ -95,14 +95,22 @@ export function refreshToken(refreshTokenValue) {
   return post("/api/auth/refresh", { refreshToken: refreshTokenValue });
 }
 
+export function forgotPassword(email) {
+  return post("/api/auth/forgot-password", { email });
+}
+
+export function resetPassword(token, newPassword) {
+  return post("/api/auth/reset-password", { token, newPassword });
+}
+
 export function getMe() {
   return apiFetch("/api/auth/me");
 }
 
-export function registerFace(embedding) {
+export function registerFace(imageBase64) {
   return apiFetch("/api/auth/register/face", {
     method: "POST",
-    body: JSON.stringify({ embedding }),
+    body: JSON.stringify({ imageBase64 }),
   });
 }
 

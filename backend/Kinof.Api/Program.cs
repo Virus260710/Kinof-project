@@ -15,7 +15,16 @@ var jwtKey = builder.Configuration["Jwt:Key"]
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("Default")));
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection("Email"));
+builder.Services.Configure<FaceServiceOptions>(builder.Configuration.GetSection("FaceService"));
 builder.Services.AddScoped<IEmailSender, EmailSender>();
+builder.Services.AddHttpClient<IFaceEmbeddingClient, FaceEmbeddingClient>((serviceProvider, client) =>
+{
+    var options = serviceProvider
+        .GetRequiredService<Microsoft.Extensions.Options.IOptions<FaceServiceOptions>>()
+        .Value;
+    client.BaseAddress = new Uri(options.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+});
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<BookingService>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
@@ -91,6 +100,16 @@ auth.MapPost("/refresh", (
     AuthService service,
     CancellationToken cancellationToken) =>
     service.RefreshAsync(request, cancellationToken));
+auth.MapPost("/forgot-password", (
+    ForgotPasswordRequest request,
+    AuthService service,
+    CancellationToken cancellationToken) =>
+    service.ForgotPasswordAsync(request, cancellationToken));
+auth.MapPost("/reset-password", (
+    ResetPasswordRequest request,
+    AuthService service,
+    CancellationToken cancellationToken) =>
+    service.ResetPasswordAsync(request, cancellationToken));
 auth.MapGet("/me", (
     ClaimsPrincipal user,
     AuthService service,

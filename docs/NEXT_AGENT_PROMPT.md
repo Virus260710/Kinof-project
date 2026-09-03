@@ -3,7 +3,8 @@
 > **Workspace:** `C:\Users\User\Desktop\Kinof-project`  
 > **GitHub:** https://github.com/Virus260710/Kinof-project.git  
 > **Branch:** `cursor/phase0-backend-email-otp`  
-> อ่านสถานะล่าสุด: `docs/HANDOFF_LATEST.md`
+> อ่านสถานะล่าสุด: `docs/HANDOFF_LATEST.md`  
+> **แชท Support / สอบถาม:** ดู `docs/SUPPORT_AGENT_PROMPT.md`
 
 ---
 

@@ -1,19 +1,15 @@
 import React from "react";
-import { ArrowLeft, Camera, ShieldCheck } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Camera, LogOut, ShieldCheck } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import Card from "../../components/Card";
 import { GOLD, NAVY } from "../../theme";
 
-export default function FaceEnrollIntro() {
+export default function FaceEnrollIntro({ onLogout }) {
   const navigate = useNavigate();
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "#F4F5F8" }}>
       <Card className="w-full max-w-lg p-7">
-        <Link to="/" className="flex items-center gap-1 text-xs text-gray-400 mb-5 hover:text-gray-600">
-          <ArrowLeft size={13} /> ข้ามไปก่อน (ทำภายหลังได้)
-        </Link>
-
         <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-4" style={{ background: GOLD, color: NAVY }}>
           <Camera size={20} />
         </div>
@@ -25,7 +21,7 @@ export default function FaceEnrollIntro() {
         <div className="space-y-3 text-xs text-gray-600 mb-6">
           <div className="flex items-start gap-2">
             <ShieldCheck size={14} className="text-emerald-600 mt-0.5" />
-            <span>ระบบใช้ MediaPipe ตรวจจับใบหน้าและ liveness (กระพริบตา) ก่อนบันทึก</span>
+            <span>ระบบใช้ MediaPipe ตรวจจับ liveness (กระพริบตา) และ InsightFace สร้าง face embedding</span>
           </div>
           <div className="flex items-start gap-2">
             <ShieldCheck size={14} className="text-emerald-600 mt-0.5" />
@@ -43,6 +39,13 @@ export default function FaceEnrollIntro() {
           style={{ background: NAVY }}
         >
           เริ่มสแกนใบหน้า
+        </button>
+        <button
+          type="button"
+          onClick={onLogout}
+          className="w-full mt-3 inline-flex items-center justify-center gap-2 text-xs text-gray-500 hover:text-gray-700"
+        >
+          <LogOut size={13} /> ออกจากระบบและทำภายหลัง
         </button>
       </Card>
     </div>

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Users, ShieldAlert, ArrowLeft, Mail, Lock, Chrome, Facebook } from "lucide-react";
+import { Users, ShieldAlert, ArrowLeft, Mail, Lock, Chrome } from "lucide-react";
 import { Link } from "react-router-dom";
 import Card from "../components/Card";
 import { NAVY, GOLD } from "../theme";
@@ -100,6 +100,9 @@ export default function Login({ onOtpRequired }) {
               className="w-full text-sm border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 focus:outline-none focus:border-gray-400"
             />
           </div>
+          <Link to="/forgot-password" className="self-end text-xs text-gray-500 underline hover:text-gray-700">
+            ลืมรหัสผ่าน?
+          </Link>
         </div>
 
         {error && <p className="text-xs text-red-600 mb-3" role="alert">{error}</p>}
@@ -118,9 +121,6 @@ export default function Login({ onOtpRequired }) {
         <div className="flex flex-col gap-2">
           <button disabled className="w-full flex items-center justify-center gap-2 border border-gray-200 rounded-lg py-2.5 text-sm text-gray-400 cursor-not-allowed">
             <Chrome size={16} /> Google (เร็ว ๆ นี้)
-          </button>
-          <button disabled className="w-full flex items-center justify-center gap-2 border border-gray-200 rounded-lg py-2.5 text-sm text-gray-400 cursor-not-allowed">
-            <Facebook size={16} /> Facebook (เร็ว ๆ นี้)
           </button>
         </div>
 

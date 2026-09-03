@@ -24,11 +24,14 @@ public sealed record RegisterRequest(
 public sealed record VerifyEmailOtpRequest(Guid UserId, string Code);
 public sealed record ResendEmailOtpRequest(Guid UserId);
 public sealed record RefreshTokenRequest(string RefreshToken);
-public sealed record RegisterFaceRequest(float[] Embedding);
+public sealed record RegisterFaceRequest(string ImageBase64);
+public sealed record ForgotPasswordRequest(string Email);
+public sealed record ResetPasswordRequest(string Token, string NewPassword);
 
 public sealed class AuthService(
     AppDbContext db,
     IEmailSender emailSender,
+    IFaceEmbeddingClient faceEmbeddingClient,
     IConfiguration configuration,
     ILogger<AuthService> logger)
 {
@@ -222,13 +225,116 @@ public sealed class AuthService(
         });
     }
 
+    public async Task<IResult> ForgotPasswordAsync(
+        ForgotPasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        var response = Results.Ok(new
+        {
+            ok = true,
+            message = "หากอีเมลนี้มีบัญชีอยู่ ระบบจะส่งลิงก์ตั้งรหัสผ่านใหม่ให้"
+        });
+        var email = request.Email?.Trim().ToLowerInvariant() ?? "";
+        if (!MailAddress.TryCreate(email, out _))
+            return response;
+
+        var user = await db.Users.SingleOrDefaultAsync(
+            x => x.Email.ToLower() == email && x.Status == UserStatus.Active,
+            cancellationToken);
+        if (user is null)
+            return response;
+
+        var now = DateTime.UtcNow;
+        var activeTokens = await db.PasswordResetTokens
+            .Where(x => x.UserId == user.Id && x.UsedAt == null)
+            .ToListAsync(cancellationToken);
+        foreach (var activeToken in activeTokens)
+            activeToken.UsedAt = now;
+
+        var token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+        db.PasswordResetTokens.Add(new PasswordResetToken
+        {
+            UserId = user.Id,
+            TokenHash = HashToken(token),
+            ExpiresAt = now.AddHours(1)
+        });
+        await db.SaveChangesAsync(cancellationToken);
+
+        var frontendBaseUrl = configuration["Frontend:BaseUrl"] ?? "http://localhost:5173";
+        var resetLink =
+            $"{frontendBaseUrl.TrimEnd('/')}/reset-password?token={Uri.EscapeDataString(token)}";
+        try
+        {
+            var delivery = await emailSender.SendPasswordResetEmailAsync(
+                user.Email,
+                user.FirstName,
+                resetLink,
+                cancellationToken);
+            logger.LogInformation(
+                "Password reset delivery mode for {MaskedEmail}: {Mode}",
+                MaskEmail(user.Email),
+                delivery.Mode);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(
+                exception,
+                "Password reset email delivery failed for {MaskedEmail}",
+                MaskEmail(user.Email));
+        }
+
+        return response;
+    }
+
+    public async Task<IResult> ResetPasswordAsync(
+        ResetPasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Token))
+            return InvalidResetToken();
+        if (request.NewPassword is null || request.NewPassword.Length < 8)
+            return ValidationError("รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร");
+
+        var now = DateTime.UtcNow;
+        var tokenHash = HashToken(request.Token);
+        var resetToken = await db.PasswordResetTokens.SingleOrDefaultAsync(
+            x => x.TokenHash == tokenHash &&
+                 x.UsedAt == null &&
+                 x.ExpiresAt > now,
+            cancellationToken);
+        if (resetToken is null)
+            return InvalidResetToken();
+
+        var user = await db.Users.SingleOrDefaultAsync(
+            x => x.Id == resetToken.UserId && x.Status == UserStatus.Active,
+            cancellationToken);
+        if (user is null)
+            return InvalidResetToken();
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword, workFactor: 12);
+        user.UpdatedAt = now;
+        resetToken.UsedAt = now;
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(new { ok = true });
+    }
+
     public async Task<IResult> RegisterFaceAsync(
         Guid userId,
         RegisterFaceRequest request,
         CancellationToken cancellationToken)
     {
-        if (request.Embedding is null || request.Embedding.Length != 512)
-            return ValidationError("ต้องส่ง face embedding 512 มิติ");
+        if (!TryDecodeImage(
+                request.ImageBase64,
+                out var image,
+                out var contentType,
+                out var validationMessage))
+        {
+            return ValidationError(validationMessage);
+        }
 
         var user = await db.Users.SingleOrDefaultAsync(
             x => x.Id == userId && x.Status == UserStatus.Active,
@@ -236,7 +342,22 @@ public sealed class AuthService(
         if (user is null)
             return Results.NotFound(new { message = "ไม่พบบัญชีผู้ใช้" });
 
-        var embeddingJson = JsonSerializer.Serialize(request.Embedding);
+        float[] embedding;
+        try
+        {
+            embedding = await faceEmbeddingClient.CreateEmbeddingAsync(
+                image,
+                contentType,
+                cancellationToken);
+        }
+        catch (FaceServiceException exception)
+        {
+            return Results.Json(
+                new { message = exception.Message },
+                statusCode: exception.StatusCode);
+        }
+
+        var embeddingJson = JsonSerializer.Serialize(embedding);
         var existing = await db.FaceEmbeddings.SingleOrDefaultAsync(
             x => x.UserId == userId,
             cancellationToken);
@@ -260,6 +381,56 @@ public sealed class AuthService(
         await db.SaveChangesAsync(cancellationToken);
 
         return Results.Ok(new { ok = true, faceEnrolled = true, user = ToResponse(user) });
+    }
+
+    private static bool TryDecodeImage(
+        string? imageBase64,
+        out byte[] image,
+        out string contentType,
+        out string validationMessage)
+    {
+        image = [];
+        contentType = "";
+        validationMessage = "";
+
+        if (string.IsNullOrWhiteSpace(imageBase64) || imageBase64.Length > 7_000_000)
+        {
+            validationMessage = "ภาพใบหน้าไม่ถูกต้องหรือมีขนาดใหญ่เกิน 5 MB";
+            return false;
+        }
+
+        var supportedPrefixes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["data:image/jpeg;base64,"] = "image/jpeg",
+            ["data:image/png;base64,"] = "image/png",
+            ["data:image/webp;base64,"] = "image/webp"
+        };
+        var prefix = supportedPrefixes.Keys.FirstOrDefault(
+            candidate => imageBase64.StartsWith(candidate, StringComparison.OrdinalIgnoreCase));
+        if (prefix is null)
+        {
+            validationMessage = "รองรับเฉพาะภาพ JPEG, PNG หรือ WebP";
+            return false;
+        }
+
+        try
+        {
+            image = Convert.FromBase64String(imageBase64[prefix.Length..]);
+        }
+        catch (FormatException)
+        {
+            validationMessage = "ข้อมูลภาพใบหน้าไม่ถูกต้อง";
+            return false;
+        }
+
+        if (image.Length is < 1_024 or > 5 * 1_024 * 1_024)
+        {
+            validationMessage = "ภาพใบหน้าไม่ถูกต้องหรือมีขนาดใหญ่เกิน 5 MB";
+            return false;
+        }
+
+        contentType = supportedPrefixes[prefix];
+        return true;
     }
 
     public async Task<IResult> ResendOtpAsync(
@@ -382,6 +553,9 @@ public sealed class AuthService(
     private static IResult InvalidOtp() => Results.Json(
         new { message = "OTP ไม่ถูกต้องหรือหมดอายุแล้ว" },
         statusCode: StatusCodes.Status400BadRequest);
+
+    private static IResult InvalidResetToken() => Results.BadRequest(
+        new { message = "ลิงก์ตั้งรหัสผ่านไม่ถูกต้อง ถูกใช้แล้ว หรือหมดอายุ" });
 
     private static IResult ValidationError(string message) =>
         Results.BadRequest(new { message });

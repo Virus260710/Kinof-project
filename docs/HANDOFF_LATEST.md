@@ -17,7 +17,7 @@
 | Auth: login, register, verify/resend OTP | ✅ |
 | **GET /api/auth/me** | ✅ |
 | **POST /api/auth/refresh** | ✅ |
-| **POST /api/auth/register/face** | ✅ (512-d embedding) |
+| **POST /api/auth/register/face** | ✅ (รูป → InsightFace → 512-d embedding) |
 | **GET /api/rooms**, **GET /api/rooms/available** | ✅ |
 | **GET /api/bookings/me**, **POST /api/bookings** | ✅ |
 | Email OTP (MailKit + console fallback) | ✅ |
@@ -59,11 +59,18 @@ POST /api/bookings                   [JWT]
 ## วิธีรัน
 
 ```powershell
-# Terminal 1 — Backend
+# Terminal 1 — Face Service (ต้องมี Python 3.10/3.11)
+cd C:\Users\User\Desktop\Kinof-project\face-service
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
+
+# Terminal 2 — Backend
 cd C:\Users\User\Desktop\Kinof-project\backend
 dotnet run --project .\Kinof.Api\Kinof.Api.csproj
 
-# Terminal 2 — Frontend
+# Terminal 3 — Frontend
 cd C:\Users\User\Desktop\Kinof-project\kinof-app
 npm install
 npm run dev
@@ -82,8 +89,10 @@ npm run dev
 
 - MediaPipe FaceDetector + FaceLandmarker
 - Auto-capture เมื่อใบหน้าอยู่กึ่งกลาง + กระพริบตา (liveness)
-- ส่ง embedding 512 มิติไป `POST /api/auth/register/face`
-- **หมายเหตุ:** embedding จาก landmarks เป็น interim — production ควรใช้ InsightFace service (Phase 2)
+- Frontend ส่งภาพ JPEG ชั่วคราวไป `POST /api/auth/register/face`
+- Backend forward ภาพใน memory ไป FastAPI + InsightFace `buffalo_l`
+- เก็บเฉพาะ normalized embedding 512 มิติใน DB และไม่เก็บรูปบน server
+- ถ้ากล้องหรือ API error มีปุ่ม retry; ปุ่มข้ามที่วนกลับหน้าเดิมถูกเปลี่ยนเป็น logout
 
 ---
 
@@ -93,7 +102,7 @@ npm run dev
 |-------|-----|
 | 1 | Forgot password API + UI |
 | 2 | Entry OTP สำหรับ Kiosk (`/api/auth/entry-otp`) |
-| 3 | InsightFace Python service (embedding จริง) |
+| 3 | ติดตั้ง Python 3.10/3.11 และทดสอบ InsightFace ด้วยกล้องจริงบนเครื่อง |
 | 4 | Admin pages เชื่อม API |
 | 5 | Schedule API (`GET /api/schedule/me`) |
 | 6 | git push branch ขึ้น GitHub |

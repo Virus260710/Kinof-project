@@ -17,6 +17,8 @@ import Toast from "./components/Toast";
 import Login from "./pages/Login";
 import OtpVerify from "./pages/OtpVerify";
 import Register from "./pages/Register";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import FaceEnrollIntro from "./pages/face/FaceEnrollIntro";
 import FaceEnrollScan from "./pages/face/FaceEnrollScan";
 import FaceEnrollSuccess from "./pages/face/FaceEnrollSuccess";
@@ -34,7 +36,7 @@ import AdminHelpCenter from "./pages/admin/AdminHelpCenter";
 
 import { initialTickets, initialBlocked } from "./data/mockData";
 import { getMyBookings, formatThaiDate, formatSlotLabel } from "./api/bookings";
-import { storeAuth } from "./api/auth";
+import { getMe, readStoredAuth, storeAuth } from "./api/auth";
 
 const USER_NAV = [
   { key: "home", label: "หน้าหลัก", icon: Home },
@@ -71,6 +73,7 @@ function mapBookingRow(booking) {
 export default function App() {
   const navigate = useNavigate();
   const [auth, setAuth] = useState(() => readStoredJson(localStorage, "kinofAuth"));
+  const [bootstrapping, setBootstrapping] = useState(() => Boolean(readStoredAuth()));
   const [pendingLogin, setPendingLogin] = useState(() => readStoredJson(sessionStorage, "kinofPendingLogin"));
   const role = auth?.user?.userType === "admin" ? "admin" : "user";
   const [page, setPage] = useState(() => (role === "admin" ? "dashboard" : "home"));
@@ -82,11 +85,50 @@ export default function App() {
   const [blocked, setBlocked] = useState(initialBlocked);
 
   useEffect(() => {
-    if (!auth?.accessToken || role !== "user") return;
+    let active = true;
+    const storedAuth = readStoredAuth();
+    if (!storedAuth?.accessToken && !storedAuth?.refreshToken) {
+      localStorage.removeItem("kinofAuth");
+      setAuth(null);
+      setBootstrapping(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    getMe()
+      .then((user) => {
+        if (!active) return;
+        const currentAuth = readStoredAuth();
+        if (!currentAuth?.accessToken) {
+          throw new Error("เซสชันหมดอายุ");
+        }
+        const nextAuth = { ...currentAuth, user };
+        storeAuth(nextAuth);
+        setAuth(nextAuth);
+        setPage(user.userType === "admin" ? "dashboard" : "home");
+      })
+      .catch(() => {
+        if (!active) return;
+        localStorage.removeItem("kinofAuth");
+        setAuth(null);
+        navigate("/login", { replace: true });
+      })
+      .finally(() => {
+        if (active) setBootstrapping(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [navigate]);
+
+  useEffect(() => {
+    if (bootstrapping || !auth?.accessToken || role !== "user") return;
     getMyBookings()
       .then((rows) => setMyBookings(rows.map(mapBookingRow)))
       .catch(() => {});
-  }, [auth?.accessToken, role]);
+  }, [auth?.accessToken, bootstrapping, role]);
 
   const handleOtpRequired = (loginResult) => {
     setPendingLogin(loginResult);
@@ -180,6 +222,14 @@ export default function App() {
 
   const needsFaceEnroll = auth && !auth.user?.faceEnrolled && auth.user?.userType !== "admin";
 
+  if (bootstrapping) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-sm text-gray-500" style={{ background: "#F4F5F8" }}>
+        กำลังตรวจสอบเซสชัน...
+      </div>
+    );
+  }
+
   return (
     <Routes>
       <Route
@@ -203,8 +253,16 @@ export default function App() {
         element={auth ? <Navigate to="/" replace /> : <Register onOtpRequired={handleOtpRequired} />}
       />
       <Route
+        path="/forgot-password"
+        element={auth ? <Navigate to="/" replace /> : <ForgotPassword />}
+      />
+      <Route
+        path="/reset-password"
+        element={auth ? <Navigate to="/" replace /> : <ResetPassword />}
+      />
+      <Route
         path="/register/face"
-        element={auth ? <FaceEnrollIntro /> : <Navigate to="/login" replace />}
+        element={auth ? <FaceEnrollIntro onLogout={handleLogout} /> : <Navigate to="/login" replace />}
       />
       <Route
         path="/register/face/scan"

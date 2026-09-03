@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Card from "../../components/Card";
 import { registerFace } from "../../api/auth";
@@ -11,11 +11,11 @@ export default function FaceEnrollScan({ onFaceEnrolled }) {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const handleCaptured = useCallback(async (embedding) => {
+  const handleCaptured = useCallback(async (imageBase64) => {
     setSubmitting(true);
     setError("");
     try {
-      const result = await registerFace(embedding);
+      const result = await registerFace(imageBase64);
       onFaceEnrolled?.(result.user);
       navigate("/register/face/success", { replace: true });
     } catch (requestError) {
@@ -24,14 +24,20 @@ export default function FaceEnrollScan({ onFaceEnrolled }) {
     }
   }, [navigate, onFaceEnrolled]);
 
-  const handleCaptureError = useCallback((captureError) => {
-    setError(captureError.message ?? "ไม่สามารถเปิดกล้องได้");
+  const handleCaptureError = useCallback(() => {
+    setError("");
   }, []);
 
-  const { videoRef, status, hint, progress, stopCamera } = useFaceCapture({
+  const { videoRef, status, hint, progress, retry, stopCamera } = useFaceCapture({
     onCaptured: handleCaptured,
     onError: handleCaptureError,
   });
+
+  const handleRetry = () => {
+    setError("");
+    setSubmitting(false);
+    retry();
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-8" style={{ background: "#F4F5F8" }}>
@@ -64,8 +70,21 @@ export default function FaceEnrollScan({ onFaceEnrolled }) {
         <div className="h-2 bg-gray-200 rounded-full overflow-hidden mb-2">
           <div className="h-full transition-all duration-200" style={{ width: `${progress}%`, background: NAVY }} />
         </div>
-        <p className="text-sm text-gray-700 text-center min-h-[1.25rem]">{hint}</p>
-        {error && <p className="text-xs text-red-600 mt-3 text-center" role="alert">{error}</p>}
+        <p className="text-sm text-gray-700 text-center min-h-[1.25rem]" aria-live="polite">{hint}</p>
+        {(error || status === "error") && (
+          <div className="mt-4 text-center" role="alert">
+            {error && <p className="text-xs text-red-600 mb-3">{error}</p>}
+            {!submitting && (
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <RefreshCw size={14} /> ลองสแกนใหม่
+              </button>
+            )}
+          </div>
+        )}
       </Card>
     </div>
   );

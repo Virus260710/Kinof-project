@@ -24,15 +24,29 @@ function eyeAspectRatio(landmarks, indices) {
   return (verticalA + verticalB) / (2 * horizontal);
 }
 
-function buildEmbedding(landmarks) {
-  const values = [];
-  for (const point of landmarks) {
-    values.push(point.x, point.y, point.z ?? 0);
+function captureFrame(video) {
+  const maxWidth = 720;
+  const scale = Math.min(1, maxWidth / video.videoWidth);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("ไม่สามารถเตรียมภาพจากกล้องได้");
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.9);
+}
+
+function cameraErrorMessage(error) {
+  if (error?.name === "NotAllowedError") {
+    return "ไม่ได้รับอนุญาตให้ใช้กล้อง กรุณาอนุญาตกล้องแล้วลองใหม่";
   }
-  while (values.length < 512) values.push(0);
-  const vector = values.slice(0, 512);
-  const magnitude = Math.hypot(...vector) || 1;
-  return vector.map((value) => value / magnitude);
+  if (error?.name === "NotFoundError") {
+    return "ไม่พบกล้องที่พร้อมใช้งาน";
+  }
+  if (error?.name === "NotReadableError") {
+    return "กล้องกำลังถูกใช้งานโดยโปรแกรมอื่น";
+  }
+  return error?.message || "ไม่สามารถเปิดกล้องได้";
 }
 
 function isFaceCentered(box, width, height) {
@@ -58,6 +72,7 @@ export function useFaceCapture({ onCaptured, onError }) {
   const [status, setStatus] = useState("loading");
   const [hint, setHint] = useState("กำลังเตรียมกล้อง...");
   const [progress, setProgress] = useState(0);
+  const [attempt, setAttempt] = useState(0);
 
   const stopCamera = useCallback(() => {
     if (frameRef.current) {
@@ -68,28 +83,62 @@ export function useFaceCapture({ onCaptured, onError }) {
     streamRef.current = null;
   }, []);
 
+  const retry = useCallback(() => {
+    stopCamera();
+    setProgress(0);
+    setAttempt((current) => current + 1);
+  }, [stopCamera]);
+
   useEffect(() => {
     let cancelled = false;
 
     async function start() {
       try {
+        capturedRef.current = false;
+        stableSinceRef.current = null;
+        blinkArmedRef.current = false;
+        blinkSeenRef.current = false;
+        setProgress(0);
         setStatus("loading");
         setHint("กำลังโหลด MediaPipe...");
         const vision = await FilesetResolver.forVisionTasks(WASM_BASE);
-        const detector = await FaceDetector.createFromOptions(vision, {
-          baseOptions: { modelAssetPath: FACE_DETECTOR_MODEL, delegate: "GPU" },
-          runningMode: "VIDEO",
-        });
-        const landmarker = await FaceLandmarker.createFromOptions(vision, {
-          baseOptions: { modelAssetPath: FACE_LANDMARKER_MODEL, delegate: "GPU" },
-          runningMode: "VIDEO",
-          numFaces: 1,
-          outputFaceBlendshapes: false,
-        });
-        if (cancelled) return;
-
+        let detector;
+        let landmarker;
+        try {
+          detector = await FaceDetector.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: FACE_DETECTOR_MODEL, delegate: "GPU" },
+            runningMode: "VIDEO",
+          });
+        } catch {
+          detector = await FaceDetector.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: FACE_DETECTOR_MODEL },
+            runningMode: "VIDEO",
+          });
+        }
         detectorRef.current = detector;
+        try {
+          landmarker = await FaceLandmarker.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: FACE_LANDMARKER_MODEL, delegate: "GPU" },
+            runningMode: "VIDEO",
+            numFaces: 1,
+            outputFaceBlendshapes: false,
+          });
+        } catch {
+          landmarker = await FaceLandmarker.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: FACE_LANDMARKER_MODEL },
+            runningMode: "VIDEO",
+            numFaces: 1,
+            outputFaceBlendshapes: false,
+          });
+        }
         landmarkerRef.current = landmarker;
+        if (cancelled) {
+          detector.close();
+          landmarker.close();
+          detectorRef.current = null;
+          landmarkerRef.current = null;
+          return;
+        }
 
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -113,7 +162,8 @@ export function useFaceCapture({ onCaptured, onError }) {
         const rightEye = [362, 385, 387, 263, 373, 380];
 
         const tick = () => {
-          if (cancelled || capturedRef.current || !video.videoWidth) {
+          if (cancelled) return;
+          if (capturedRef.current || !video.videoWidth) {
             frameRef.current = requestAnimationFrame(tick);
             return;
           }
@@ -162,9 +212,9 @@ export function useFaceCapture({ onCaptured, onError }) {
                     setStatus("capturing");
                     setProgress(100);
                     setHint("กำลังบันทึกใบหน้า...");
-                    const embedding = buildEmbedding(landmarks);
+                    const imageBase64 = captureFrame(video);
                     stopCamera();
-                    onCaptured?.(embedding);
+                    onCaptured?.(imageBase64);
                     return;
                   }
                   setProgress(Math.max(60, Math.min(95, 60 + Math.floor((0.24 - ear) * 200))));
@@ -179,8 +229,13 @@ export function useFaceCapture({ onCaptured, onError }) {
         frameRef.current = requestAnimationFrame(tick);
       } catch (error) {
         if (!cancelled) {
+          stopCamera();
+          detectorRef.current?.close();
+          landmarkerRef.current?.close();
+          detectorRef.current = null;
+          landmarkerRef.current = null;
           setStatus("error");
-          setHint("ไม่สามารถเปิดกล้องได้");
+          setHint(cameraErrorMessage(error));
           onError?.(error);
         }
       }
@@ -190,8 +245,12 @@ export function useFaceCapture({ onCaptured, onError }) {
     return () => {
       cancelled = true;
       stopCamera();
+      detectorRef.current?.close();
+      landmarkerRef.current?.close();
+      detectorRef.current = null;
+      landmarkerRef.current = null;
     };
-  }, [onCaptured, onError, stopCamera]);
+  }, [attempt, onCaptured, onError, stopCamera]);
 
-  return { videoRef, status, hint, progress, stopCamera };
+  return { videoRef, status, hint, progress, retry, stopCamera };
 }
