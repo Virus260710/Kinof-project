@@ -1,5 +1,6 @@
 using System.Text;
 using System.Threading.RateLimiting;
+using System.Security.Claims;
 using Kinof.Api.Data;
 using Kinof.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -14,8 +15,18 @@ var jwtKey = builder.Configuration["Jwt:Key"]
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("Default")));
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection("Email"));
+builder.Services.Configure<FaceServiceOptions>(builder.Configuration.GetSection("FaceService"));
 builder.Services.AddScoped<IEmailSender, EmailSender>();
+builder.Services.AddHttpClient<IFaceEmbeddingClient, FaceEmbeddingClient>((serviceProvider, client) =>
+{
+    var options = serviceProvider
+        .GetRequiredService<Microsoft.Extensions.Options.IOptions<FaceServiceOptions>>()
+        .Value;
+    client.BaseAddress = new Uri(options.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+});
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<BookingService>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
     policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
         .AllowAnyHeader()
@@ -84,5 +95,71 @@ auth.MapPost("/resend-email-otp", (
     AuthService service,
     CancellationToken cancellationToken) =>
     service.ResendOtpAsync(request, cancellationToken));
+auth.MapPost("/refresh", (
+    RefreshTokenRequest request,
+    AuthService service,
+    CancellationToken cancellationToken) =>
+    service.RefreshAsync(request, cancellationToken));
+auth.MapPost("/forgot-password", (
+    ForgotPasswordRequest request,
+    AuthService service,
+    CancellationToken cancellationToken) =>
+    service.ForgotPasswordAsync(request, cancellationToken));
+auth.MapPost("/reset-password", (
+    ResetPasswordRequest request,
+    AuthService service,
+    CancellationToken cancellationToken) =>
+    service.ResetPasswordAsync(request, cancellationToken));
+auth.MapGet("/me", (
+    ClaimsPrincipal user,
+    AuthService service,
+    CancellationToken cancellationToken) =>
+    service.GetMeAsync(user, cancellationToken)).RequireAuthorization();
+auth.MapPost("/register/face", (
+    RegisterFaceRequest request,
+    ClaimsPrincipal user,
+    AuthService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.RegisterFaceAsync(userId.Value, request, cancellationToken);
+}).RequireAuthorization();
+
+var bookings = app.MapGroup("/api/bookings").RequireAuthorization();
+bookings.MapGet("/me", (
+    ClaimsPrincipal user,
+    BookingService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.GetMyBookingsAsync(userId.Value, cancellationToken);
+});
+bookings.MapPost("/", (
+    CreateBookingRequest request,
+    ClaimsPrincipal user,
+    BookingService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.CreateBookingAsync(userId.Value, request, cancellationToken);
+});
+
+var rooms = app.MapGroup("/api/rooms").RequireAuthorization();
+rooms.MapGet("/", (
+    BookingService service,
+    CancellationToken cancellationToken) =>
+    service.GetRoomsAsync(cancellationToken));
+rooms.MapGet("/available", (
+    DateTime startTime,
+    DateTime endTime,
+    BookingService service,
+    CancellationToken cancellationToken) =>
+    service.GetAvailableRoomsAsync(startTime, endTime, cancellationToken));
 
 app.Run();

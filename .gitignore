@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 **/node_modules/
+.venv/
+**/.venv/
+__pycache__/
+*.py[cod]
 
 # Build
 dist/
@@ -30,3 +34,4 @@ Thumbs.db
 
 # Logs
 *.log
+.pytest_cache/
