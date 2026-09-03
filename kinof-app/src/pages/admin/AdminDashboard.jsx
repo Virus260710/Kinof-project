@@ -1,6 +1,5 @@
 import React from "react";
 import { Monitor, Users, LifeBuoy } from "lucide-react";
-import TopBar from "../../components/TopBar";
 import Card from "../../components/Card";
 import { initialLog } from "../../data/mockData";
 
@@ -12,7 +11,6 @@ export default function AdminDashboard({ tickets }) {
   const pending = tickets.filter((t) => t.status !== "เสร็จสิ้น").length;
   return (
     <div>
-      <TopBar name="แอดมิน สมชาย" />
       <h1 className="text-lg font-medium text-gray-900 mb-4">แดชบอร์ด</h1>
       <div className="grid grid-cols-3 gap-4">
         <Card className="p-5">

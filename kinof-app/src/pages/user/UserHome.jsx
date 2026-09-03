@@ -4,10 +4,11 @@ import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import Button from "../../components/Button";
 import { TEAL } from "../../theme";
+import { getDisplayName } from "../../utils/displayName";
 
 export default function UserHome({ setPage, myBookings = [], auth }) {
   const latest = myBookings.length > 0 ? myBookings[0] : null;
-  const displayName = auth?.user?.firstName ? `คุณ${auth.user.firstName}` : "ยินดีต้อนรับ";
+  const displayName = getDisplayName(auth?.user);
 
   return (
     <div className="w-full max-w-6xl mx-auto">

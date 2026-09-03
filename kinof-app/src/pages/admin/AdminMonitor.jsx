@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { Ban, AlertTriangle, X } from "lucide-react";
-import TopBar from "../../components/TopBar";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import { NAVY } from "../../theme";
@@ -24,7 +23,6 @@ export default function AdminMonitor({ blocked, setBlocked, notify }) {
 
   return (
     <div>
-      <TopBar name="แอดมิน สมชาย" />
       <h1 className="text-lg font-medium text-gray-900 mb-4">ตรวจสอบการใช้งาน</h1>
       <div className="flex gap-2 mb-4">
         {tabs.map((t) => (

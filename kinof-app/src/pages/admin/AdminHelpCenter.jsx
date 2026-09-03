@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import TopBar from "../../components/TopBar";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import { NAVY } from "../../theme";
@@ -31,7 +30,6 @@ export default function AdminHelpCenter({ tickets, setTickets, notify }) {
 
   return (
     <div>
-      <TopBar name="แอดมิน สมชาย" />
       <h1 className="text-lg font-medium text-gray-900 mb-4">ศูนย์แก้ไขปัญหา</h1>
       <div className="flex gap-2 mb-4">
         {TABS.map((t) => (
