@@ -21,6 +21,7 @@ export default function UserHome({ setPage, myBookings = [] }) {
         <div className="relative z-10 flex flex-col md:flex-row md:items-end md:justify-between gap-5">
           <div className="max-w-xl">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-gold-400 text-xs font-medium mb-3 backdrop-blur-md border border-white/10">
+              <Sparkles size={13} />
               <span>ระบบจองห้องแล็บ KINOF</span>
             </div>
             <h2 className="font-bold text-lg md:text-2xl mb-1.5 tracking-tight text-white">ยินดีต้อนรับ, คุณสมหญิง!</h2>

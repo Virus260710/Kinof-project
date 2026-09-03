@@ -10,18 +10,12 @@ import {
   Upload,
   LifeBuoy,
 } from "lucide-react";
-import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 
 import Sidebar from "./components/Sidebar";
 import TopBar from "./components/TopBar";
 import Toast from "./components/Toast";
 import Login from "./pages/Login";
-<<<<<<< HEAD
-import OtpVerify from "./pages/OtpVerify";
-import Register from "./pages/Register";
-=======
 import { BG_APP } from "./theme";
->>>>>>> 9bf8907 (Update UX)
 
 import UserHome from "./pages/user/UserHome";
 import BookRoom from "./pages/user/BookRoom";
@@ -51,20 +45,10 @@ const ADMIN_NAV = [
   { key: "helpcenter", label: "ศูนย์แก้ไขปัญหา", icon: LifeBuoy },
 ];
 
-function readStoredJson(storage, key) {
-  try {
-    return JSON.parse(storage.getItem(key));
-  } catch {
-    return null;
-  }
-}
-
 export default function App() {
-  const navigate = useNavigate();
-  const [auth, setAuth] = useState(() => readStoredJson(localStorage, "kinofAuth"));
-  const [pendingLogin, setPendingLogin] = useState(() => readStoredJson(sessionStorage, "kinofPendingLogin"));
-  const role = auth?.user?.userType === "admin" ? "admin" : "user";
-  const [page, setPage] = useState(() => (role === "admin" ? "dashboard" : "home"));
+  const [stage, setStage] = useState("login");
+  const [role, setRole] = useState(null);
+  const [page, setPage] = useState("home");
   const [toast, setToast] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer state
   const notify = (t) => setToast(t);
@@ -75,38 +59,13 @@ export default function App() {
   const [tickets, setTickets] = useState(initialTickets);
   const [blocked, setBlocked] = useState(initialBlocked);
 
-  const handleOtpRequired = (loginResult) => {
-    setPendingLogin(loginResult);
-    sessionStorage.setItem("kinofPendingLogin", JSON.stringify(loginResult));
-    navigate("/login/otp");
-  };
-
-  const handleVerified = (result) => {
-    const nextAuth = {
-      accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
-      user: result.user,
-    };
-    localStorage.setItem("kinofAuth", JSON.stringify(nextAuth));
-    sessionStorage.removeItem("kinofPendingLogin");
-    setPendingLogin(null);
-    setAuth(nextAuth);
-    setPage(result.user.userType === "admin" ? "dashboard" : "home");
-    navigate("/");
+  const handleLogin = (r) => {
+    setRole(r);
+    setPage(r === "admin" ? "dashboard" : "home");
+    setStage("app");
   };
 
   const handleLogout = () => {
-<<<<<<< HEAD
-    localStorage.removeItem("kinofAuth");
-    sessionStorage.removeItem("kinofPendingLogin");
-    setAuth(null);
-    setPendingLogin(null);
-    navigate("/login");
-  };
-
-  const appShell = (
-    <div className="flex flex-col md:flex-row min-h-screen w-full" style={{ background: "#F4F5F8" }}>
-=======
     setStage("login");
     setRole(null);
     setSidebarOpen(false);
@@ -120,7 +79,6 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen w-full" style={{ background: BG_APP }}>
->>>>>>> 9bf8907 (Update UX)
       <Sidebar
         items={role === "admin" ? ADMIN_NAV : USER_NAV}
         page={page}
@@ -178,31 +136,5 @@ export default function App() {
 
       <Toast text={toast} onDone={() => setToast("")} />
     </div>
-  );
-
-  return (
-    <Routes>
-      <Route
-        path="/login"
-        element={auth ? <Navigate to="/" replace /> : <Login onOtpRequired={handleOtpRequired} />}
-      />
-      <Route
-        path="/login/otp"
-        element={
-          auth ? (
-            <Navigate to="/" replace />
-          ) : pendingLogin ? (
-            <OtpVerify pendingLogin={pendingLogin} onVerified={handleVerified} />
-          ) : (
-            <Navigate to="/login" replace />
-          )
-        }
-      />
-      <Route
-        path="/register"
-        element={auth ? <Navigate to="/" replace /> : <Register onOtpRequired={handleOtpRequired} />}
-      />
-      <Route path="*" element={auth ? appShell : <Navigate to="/login" replace />} />
-    </Routes>
   );
 }

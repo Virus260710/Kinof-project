@@ -49,9 +49,11 @@ public static class DbSeeder
             UserType = UserType.Student
         };
 
-        var labA = new Room { Name = "Lab A", Building = "อาคาร IT", Capacity = 30 };
-        var labB = new Room { Name = "Lab B", Building = "อาคาร IT", Capacity = 25 };
-        db.AddRange(admin, student, labA, labB);
+        var labA = new Room { Name = "ห้องแล็บ 1", Building = "อาคาร IT", Capacity = 30 };
+        var labB = new Room { Name = "ห้องแล็บ 2", Building = "อาคาร IT", Capacity = 25 };
+        var labC = new Room { Name = "ห้องแล็บ 3", Building = "อาคาร IT", Capacity = 30 };
+        var labD = new Room { Name = "ห้องแล็บ 4", Building = "อาคาร IT", Capacity = 25 };
+        db.AddRange(admin, student, labA, labB, labC, labD);
 
         db.Seats.AddRange(
             Enumerable.Range(1, labA.Capacity)
@@ -59,14 +61,28 @@ public static class DbSeeder
                 {
                     RoomId = labA.Id,
                     SeatNumber = number,
-                    ComputerName = $"PC-LAB-A-{number:00}"
+                    ComputerName = $"PC-LAB-1-{number:00}"
                 })
                 .Concat(Enumerable.Range(1, labB.Capacity)
                     .Select(number => new Seat
                     {
                         RoomId = labB.Id,
                         SeatNumber = number,
-                        ComputerName = $"PC-LAB-B-{number:00}"
+                        ComputerName = $"PC-LAB-2-{number:00}"
+                    }))
+                .Concat(Enumerable.Range(1, labC.Capacity)
+                    .Select(number => new Seat
+                    {
+                        RoomId = labC.Id,
+                        SeatNumber = number,
+                        ComputerName = $"PC-LAB-3-{number:00}"
+                    }))
+                .Concat(Enumerable.Range(1, labD.Capacity)
+                    .Select(number => new Seat
+                    {
+                        RoomId = labD.Id,
+                        SeatNumber = number,
+                        ComputerName = $"PC-LAB-4-{number:00}"
                     })));
 
         db.WebsiteBlacklist.AddRange(

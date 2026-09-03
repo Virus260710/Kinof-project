@@ -74,12 +74,12 @@ export default function OtpVerify({ pendingLogin, onVerified }) {
         </p>
         {deliveryMode === "console" && (
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-            ยังไม่ได้ตั้งรหัสผ่าน SMTP ระบบจึงแสดง OTP ในหน้าต่าง CMD ของ backend สำหรับทดสอบ
+            OTP อยู่ในหน้าต่าง CMD ของ backend — ใช้เมื่อยังไม่ตั้ง SMTP หรือส่งอีเมลไม่สำเร็จ (เช่น Resend โดเมนทดสอบส่งได้แค่อีเมลเจ้าของบัญชี)
           </p>
         )}
         {deliveryMode === "failed" && (
           <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
-            ส่งอีเมลไม่สำเร็จ กรุณาตรวจ SMTP App Password แล้วกดส่ง OTP ใหม่
+            ส่งอีเมลไม่สำเร็จ กรุณาตรวจ SMTP / Resend domain แล้วกดส่ง OTP ใหม่
           </p>
         )}
 
