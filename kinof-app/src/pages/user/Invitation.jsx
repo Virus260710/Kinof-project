@@ -1,9 +1,8 @@
 import React, { useState } from "react";
-import TopBar from "../../components/TopBar";
 import Card from "../../components/Card";
-import { MailOpen } from "lucide-react";
+import Button from "../../components/Button";
+import { MailOpen, Check, X, Users, Calendar, Clock } from "lucide-react";
 
-// Mock Data รายการคำเชิญเข้าร่วมกลุ่ม
 const initialInvitations = [
   {
     id: 1,
@@ -14,18 +13,11 @@ const initialInvitations = [
   },
 ];
 
-// TODO(backend):
-// - get invitations -> GET /api/invitations/me
-// - accept -> POST /api/invitations/:id/accept
-// - reject -> POST /api/invitations/:id/reject
 export default function Invitation({ notify, addBooking }) {
   const [invitations, setInvitations] = useState(initialInvitations);
 
-  // ฟังก์ชันตอบรับคำเชิญ
   const handleAccept = (item) => {
     setInvitations((prev) => prev.filter((inv) => inv.id !== item.id));
-
-    // เพิ่มรายการเข้าสู่รายการจองหลัก
     if (addBooking) {
       addBooking({
         date: item.date,
@@ -33,91 +25,117 @@ export default function Invitation({ notify, addBooking }) {
         room: item.room || "ห้องแล็บ 4",
       });
     }
-
-    if (notify) {
-      notify("ยอมรับคำเชิญเข้าร่วมกลุ่มเรียบร้อยแล้ว");
-    }
+    if (notify) notify("ยอมรับคำเชิญเข้าร่วมกลุ่มเรียบร้อยแล้ว");
   };
 
-  // ฟังก์ชันปฏิเสธคำเชิญ
   const handleReject = (id) => {
     setInvitations((prev) => prev.filter((inv) => inv.id !== id));
-    if (notify) {
-      notify("ปฏิเสธคำเชิญเรียบร้อยแล้ว");
-    }
+    if (notify) notify("ปฏิเสธคำเชิญเรียบร้อยแล้ว");
   };
 
+  const EmptyState = () => (
+    <div className="py-16 flex flex-col items-center justify-center text-slate-400">
+      <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center mb-3 border border-slate-100">
+        <MailOpen size={24} strokeWidth={1.5} className="text-slate-300" />
+      </div>
+      <span className="text-xs font-medium text-slate-500">ไม่มีรายการคำเชิญในขณะนี้</span>
+      <span className="text-caption mt-0.5">เมื่อเพื่อนส่งคำเชิญเข้ากลุ่ม รายการจะปรากฏที่นี่</span>
+    </div>
+  );
+
   return (
-    <div className="w-full">
-      <TopBar name="สมหญิง ส." />
+    <div className="w-full max-w-6xl mx-auto">
+      <div className="mb-5">
+        <h1 className="text-xl md:text-2xl font-bold text-ink tracking-tight">รายการคำเชิญเข้าร่วมกลุ่ม</h1>
+        <p className="text-caption mt-0.5">ตอบรับหรือปฏิเสธคำชวนใช้งานห้องแล็บร่วมกับเพื่อน</p>
+      </div>
 
-      <h1 className="text-base md:text-lg font-bold text-gray-900 mb-4">
-        รายการคำเชิญเข้าร่วมกลุ่ม
-      </h1>
+      {/* Mobile: การ์ดแบบ stack */}
+      <div className="md:hidden flex flex-col gap-3">
+        {invitations.length > 0 ? (
+          invitations.map((item) => (
+            <Card key={item.id} className="p-4">
+              <div className="flex items-start gap-3 mb-3">
+                <div className="w-9 h-9 rounded-full bg-navy-50 flex items-center justify-center text-navy-800 shrink-0">
+                  <Users size={15} />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-semibold text-ink text-sm truncate">{item.inviter}</div>
+                  <div className="flex items-center gap-1.5 text-caption mt-0.5">
+                    <Calendar size={11} /> {item.date}
+                  </div>
+                  <div className="flex items-center gap-1.5 text-caption mt-0.5">
+                    <Clock size={11} /> {item.time} · {item.room}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="danger" icon={X} iconPosition="left" fullWidth onClick={() => handleReject(item.id)}>
+                  ปฏิเสธ
+                </Button>
+                <Button variant="success" icon={Check} iconPosition="left" fullWidth onClick={() => handleAccept(item)}>
+                  ยอมรับ
+                </Button>
+              </div>
+            </Card>
+          ))
+        ) : (
+          <Card className="p-0">
+            <EmptyState />
+          </Card>
+        )}
+      </div>
 
-      <Card className="p-4 md:p-6">
-        {/* กล่องตารางรายการคำเชิญ */}
-        <div className="border border-gray-100 rounded-2xl overflow-hidden shadow-sm bg-white">
+      {/* Desktop / tablet: ตาราง */}
+      <Card className="p-5 md:p-6 hidden md:block">
+        <div className="border border-slate-200/80 rounded-2xl overflow-hidden bg-white shadow-soft">
           <div className="overflow-x-auto">
-            <div className="min-w-[600px]">
-              {/* ส่วนหัวตาราง (Table Header) */}
-              <div className="bg-gray-50/80 border-b border-gray-100 px-6 py-3.5">
-                <div className="grid grid-cols-12 text-xs font-semibold text-gray-800">
+            <div className="min-w-[640px]">
+              <div className="bg-slate-50 border-b border-slate-200/80 px-6 py-4">
+                <div className="grid grid-cols-12 text-xs font-semibold text-slate-600">
                   <div className="col-span-1">ลำดับ</div>
                   <div className="col-span-4">ผู้เชิญ</div>
                   <div className="col-span-3">วันที่</div>
-                  <div className="col-span-2">เวลา</div>
-                  <div className="col-span-2 text-center">จัดการ</div>
+                  <div className="col-span-2">เวลา / ห้อง</div>
+                  <div className="col-span-2 text-center">จัดการคำเชิญ</div>
                 </div>
               </div>
 
-              {/* รายการคำเชิญ (Table Body) */}
-              <div className="divide-y divide-gray-100">
+              <div className="divide-y divide-slate-100">
                 {invitations.length > 0 ? (
                   invitations.map((item, index) => (
                     <div
                       key={item.id}
-                      className="grid grid-cols-12 px-6 py-4 items-center text-xs text-gray-700 hover:bg-gray-50/40 transition-colors"
+                      className="grid grid-cols-12 px-6 py-4 items-center text-xs text-slate-700 hover:bg-slate-50/50 transition-colors"
                     >
-                      <div className="col-span-1 text-gray-600 font-medium">
-                        {index + 1}
+                      <div className="col-span-1 text-slate-400 font-medium">
+                        {String(index + 1).padStart(2, "0")}
                       </div>
-                      <div className="col-span-4 font-normal text-gray-800 truncate pr-2">
-                        {item.inviter}
+                      <div className="col-span-4 font-semibold text-ink truncate pr-3 flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full bg-navy-50 flex items-center justify-center text-navy-800 shrink-0">
+                          <Users size={13} />
+                        </div>
+                        <span className="truncate">{item.inviter}</span>
                       </div>
-                      <div className="col-span-3 text-gray-700">
+                      <div className="col-span-3 text-slate-600 font-medium">
                         {item.date}
                       </div>
-                      <div className="col-span-2 text-gray-700">
-                        {item.time}
+                      <div className="col-span-2 text-slate-600 flex flex-col">
+                        <span className="font-medium">{item.time}</span>
+                        <span className="text-[11px] text-muted">{item.room}</span>
                       </div>
                       <div className="col-span-2 flex items-center justify-center gap-2">
-                        {/* ปุ่มปฏิเสธ (สีแดง) */}
-                        <button
-                          type="button"
-                          onClick={() => handleReject(item.id)}
-                          className="bg-[#DC2626] hover:bg-[#B91C1C] text-white text-xs font-medium px-3.5 py-1.5 rounded-full transition-colors shadow-sm shrink-0"
-                        >
+                        <Button variant="danger" size="sm" icon={X} onClick={() => handleReject(item.id)}>
                           ปฏิเสธ
-                        </button>
-
-                        {/* ปุ่มยอมรับ (สีเขียว) */}
-                        <button
-                          type="button"
-                          onClick={() => handleAccept(item)}
-                          className="bg-[#16A34A] hover:bg-[#15803D] text-white text-xs font-medium px-3.5 py-1.5 rounded-full transition-colors shadow-sm shrink-0"
-                        >
+                        </Button>
+                        <Button variant="success" size="sm" icon={Check} onClick={() => handleAccept(item)}>
                           ยอมรับ
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   ))
                 ) : (
-                  /* กรณีไม่มีคำเชิญ */
-                  <div className="py-16 flex flex-col items-center justify-center text-gray-400">
-                    <MailOpen size={36} strokeWidth={1.5} className="mb-2 text-gray-300" />
-                    <span className="text-xs">ไม่มีรายการคำเชิญในขณะนี้</span>
-                  </div>
+                  <EmptyState />
                 )}
               </div>
             </div>

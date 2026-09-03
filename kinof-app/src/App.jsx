@@ -13,10 +13,15 @@ import {
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 
 import Sidebar from "./components/Sidebar";
+import TopBar from "./components/TopBar";
 import Toast from "./components/Toast";
 import Login from "./pages/Login";
+<<<<<<< HEAD
 import OtpVerify from "./pages/OtpVerify";
 import Register from "./pages/Register";
+=======
+import { BG_APP } from "./theme";
+>>>>>>> 9bf8907 (Update UX)
 
 import UserHome from "./pages/user/UserHome";
 import BookRoom from "./pages/user/BookRoom";
@@ -61,6 +66,7 @@ export default function App() {
   const role = auth?.user?.userType === "admin" ? "admin" : "user";
   const [page, setPage] = useState(() => (role === "admin" ? "dashboard" : "home"));
   const [toast, setToast] = useState("");
+  const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer state
   const notify = (t) => setToast(t);
 
   const [myBookings, setMyBookings] = useState([
@@ -90,6 +96,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+<<<<<<< HEAD
     localStorage.removeItem("kinofAuth");
     sessionStorage.removeItem("kinofPendingLogin");
     setAuth(null);
@@ -99,15 +106,34 @@ export default function App() {
 
   const appShell = (
     <div className="flex flex-col md:flex-row min-h-screen w-full" style={{ background: "#F4F5F8" }}>
+=======
+    setStage("login");
+    setRole(null);
+    setSidebarOpen(false);
+  };
+
+  if (stage === "login") return <Login onLogin={handleLogin} />;
+
+  // Centralized here instead of re-declared in every page — also the single
+  // place TopBar's mobile menu button and display name need to be wired.
+  const userDisplayName = role === "admin" ? "ผู้ดูแลระบบ" : "สมหญิง ส.";
+
+  return (
+    <div className="flex min-h-screen w-full" style={{ background: BG_APP }}>
+>>>>>>> 9bf8907 (Update UX)
       <Sidebar
         items={role === "admin" ? ADMIN_NAV : USER_NAV}
         page={page}
         setPage={setPage}
         roleLabel={role === "admin" ? "ระบบดูแลและจองห้องแล็บ" : "ระบบจองห้องแล็บ"}
         onLogout={handleLogout}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
 
       <div className="flex-1 p-4 md:p-8 w-full min-w-0">
+        <TopBar name={userDisplayName} onMenuClick={() => setSidebarOpen(true)} />
+
         {/* User Pages */}
         {role === "user" && page === "home" && (
           <UserHome setPage={setPage} myBookings={myBookings} />

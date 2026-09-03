@@ -1,117 +1,159 @@
 import React from "react";
-import { Calendar, Clock, Plus, ArrowRight, CheckCircle2 } from "lucide-react";
-import TopBar from "../../components/TopBar";
+import { Calendar, Clock, Plus, ArrowRight, CheckCircle2, History, Sparkles } from "lucide-react";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
-import { NAVY, NAVY2 } from "../../theme";
+import Button from "../../components/Button";
+import { TEAL } from "../../theme";
 
-// TODO(backend): myBookings should come from GET /api/bookings?user=me
 export default function UserHome({ setPage, myBookings = [] }) {
-  // ดึงรายการจองล่าสุด (ถ้ามี)
   const latest = myBookings.length > 0 ? myBookings[myBookings.length - 1] : null;
 
   return (
-    <div className="w-full">
-      <TopBar name="สมหญิง ส." />
-      <h1 className="text-base md:text-lg font-medium text-gray-900 mb-4">หน้าหลัก</h1>
-
-      {/* แบนเนอร์ต้อนรับ */}
-      <div
-        className="rounded-2xl text-white p-5 md:p-6 mb-6 shadow-sm"
-        style={{ background: `linear-gradient(120deg, ${NAVY}, ${NAVY2})` }}
-      >
-        <div className="font-semibold text-sm md:text-base mb-1">สวัสดี สมหญิง!</div>
-        <div className="text-xs text-blue-100 font-light">
-          ยินดีต้อนรับเข้าสู่ระบบจองห้องแล็บ KINOF
-        </div>
+    <div className="w-full max-w-6xl mx-auto">
+      {/* Title */}
+      <div className="mb-5">
+        <h1 className="text-xl md:text-2xl font-bold text-ink tracking-tight">หน้าหลัก</h1>
+        <p className="text-caption mt-0.5">ภาพรวมการจองและกิจกรรมล่าสุดของคุณ</p>
       </div>
 
-      {/* Grid การ์ดสรุปข้อมูล 2 กล่อง */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      {/* Hero Welcome Banner — carries the page's one primary action */}
+      <div className="relative overflow-hidden rounded-3xl text-white p-6 md:p-7 mb-7 shadow-blue-glow border border-navy-700/30 bg-brand-gradient">
+        <div className="relative z-10 flex flex-col md:flex-row md:items-end md:justify-between gap-5">
+          <div className="max-w-xl">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-gold-400 text-xs font-medium mb-3 backdrop-blur-md border border-white/10">
+              <span>ระบบจองห้องแล็บ KINOF</span>
+            </div>
+            <h2 className="font-bold text-lg md:text-2xl mb-1.5 tracking-tight text-white">ยินดีต้อนรับ, คุณสมหญิง!</h2>
+            <p className="text-xs md:text-sm text-white/80 font-light leading-relaxed">
+              ตรวจสอบสถานะห้องแล็บ จัดการกลุ่มเพื่อน หรือเริ่มต้นจองพื้นที่เพื่อการเรียนรู้และการทำโครงงานได้ตลอด 24 ชั่วโมง
+            </p>
+          </div>
+
+          <Button variant="gold" size="lg" icon={ArrowRight} onClick={() => setPage("book")} className="shrink-0">
+            จองห้องแล็บทันที
+          </Button>
+        </div>
+        <div className="absolute -right-10 -bottom-10 w-48 h-48 rounded-full bg-white/10 blur-3xl pointer-events-none" />
+        <div className="absolute right-24 top-0 w-24 h-24 rounded-full blur-3xl pointer-events-none" style={{ background: `${TEAL}30` }} />
+      </div>
+
+      {/* Grid Quick Info Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-7">
         {/* การ์ด 1: การจองปัจจุบัน */}
-        <Card className="p-4 md:p-5 flex flex-col justify-between">
+        <Card className="p-5 md:p-6 flex flex-col justify-between hover:border-slate-300 transition-all duration-200">
           <div>
-            <div className="text-xs text-gray-400 font-medium mb-1.5 flex items-center gap-1.5">
-              <Calendar size={14} className="text-gray-400" />
-              <span>การจองปัจจุบัน</span>
+            <div className="text-xs font-semibold text-muted uppercase tracking-wider mb-2 flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-navy-50 text-navy-800 flex items-center justify-center">
+                <Calendar size={14} />
+              </div>
+              <span>การจองปัจจุบันของคุณ</span>
             </div>
-            <div className="font-bold text-gray-800 text-sm">
-              {latest ? latest.room : "ยังไม่มีการจองในขณะนี้"}
+
+            <div className="font-bold text-ink text-base md:text-lg mt-1">
+              {latest ? latest.room : "ยังไม่มีรายการจองที่กำลังจะถึง"}
             </div>
-            {latest && (
-              <div className="text-xs text-gray-500 mt-2 flex flex-wrap items-center gap-2">
-                <span className="bg-gray-100 px-2 py-0.5 rounded-md font-medium text-gray-600">
+
+            {latest ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                <span className="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-lg font-medium border border-slate-200/60">
                   {latest.date}
                 </span>
-                <span>•</span>
-                <span className="flex items-center gap-1 text-gray-500">
-                  <Clock size={12} /> {latest.slot}
+                <span className="text-slate-300">•</span>
+                <span className="flex items-center gap-1.5 text-slate-600 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200/50">
+                  <Clock size={13} className="text-slate-400" /> {latest.slot}
                 </span>
               </div>
+            ) : (
+              <p className="text-caption mt-2">สามารถเลือกวัน เวลา และห้องว่างเพื่อเริ่มต้นจองได้ทันที</p>
             )}
           </div>
-          {latest && (
-            <div className="mt-3 pt-2 border-t border-gray-100 flex items-center gap-1 text-[11px] text-emerald-600 font-medium">
-              <CheckCircle2 size={13} /> สถานะพร้อมเข้าใช้งาน
-            </div>
-          )}
+
+          <div className="mt-5 pt-3.5 border-t border-slate-100 flex items-center justify-between">
+            {latest ? (
+              <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
+                <CheckCircle2 size={15} />
+                <span>สถานะ: พร้อมเข้าใช้งาน</span>
+              </div>
+            ) : (
+              <span className="text-caption">สถานะ: ไม่มีรอบที่รอดำเนินการ</span>
+            )}
+          </div>
         </Card>
 
-        {/* การ์ด 2: จองห้องแล็บใหม่ */}
-        <Card className="p-4 md:p-5 flex flex-col justify-between">
+        {/* การ์ด 2: จองห้องแล็บใหม่ — ปุ่ม secondary เพราะ primary CTA อยู่บน hero แล้ว */}
+        <Card className="p-5 md:p-6 flex flex-col justify-between hover:border-slate-300 transition-all duration-200">
           <div>
-            <div className="text-xs text-gray-400 font-medium mb-1 flex items-center gap-1.5">
-              <Plus size={14} className="text-gray-400" />
+            <div className="text-xs font-semibold text-muted uppercase tracking-wider mb-2 flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-gold-50 text-gold-600 flex items-center justify-center">
+                <Plus size={14} />
+              </div>
               <span>จองห้องแล็บใหม่</span>
             </div>
-            <div className="text-xs text-gray-500 mt-1">
-              มีการจองรวมทั้งหมด <span className="font-bold text-gray-800">{myBookings.length}</span> ครั้ง
-            </div>
+
+            <h3 className="font-bold text-ink text-base md:text-lg mt-1">
+              ค้นหาและจองช่วงเวลาว่าง
+            </h3>
+            <p className="text-xs text-muted mt-1.5 font-light leading-relaxed">
+              คุณใช้งานระบบไปแล้วทั้งหมด{" "}
+              <span className="inline-flex items-center gap-1 font-semibold text-teal-500 bg-teal-50 px-1.5 py-0.5 rounded-md">
+                {myBookings.length} ครั้ง
+              </span>{" "}
+              ในภาคการศึกษานี้
+            </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setPage("book")}
-            className="mt-4 self-start text-white text-xs font-medium rounded-xl px-4 py-2.5 flex items-center gap-2 shadow-sm hover:opacity-90 transition-all"
-            style={{ background: NAVY }}
-          >
-            <span>เริ่มต้นการจองใหม่</span>
-            <ArrowRight size={14} />
-          </button>
+
+          <div className="mt-5 pt-3.5 border-t border-slate-100">
+            <Button variant="secondary" icon={ArrowRight} onClick={() => setPage("book")}>
+              เริ่มต้นการจอง
+            </Button>
+          </div>
         </Card>
       </div>
 
       {/* ตารางประวัติการจอง */}
-      <Card className="p-4 md:p-5">
-        <div className="text-sm font-semibold text-gray-800 mb-4">ประวัติการจอง</div>
+      <Card className="p-5 md:p-6 overflow-hidden">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <History size={17} className="text-slate-500" />
+            <h3 className="text-sm md:text-base font-bold text-ink">ประวัติการจองทั้งหมด</h3>
+          </div>
+          <span className="text-caption">{myBookings.length} รายการ</span>
+        </div>
 
         {myBookings.length === 0 ? (
-          <div className="text-xs text-gray-400 text-center py-12 border border-dashed border-gray-200 rounded-xl">
-            คุณยังไม่มีประวัติการจองห้องแล็บ
+          <div className="flex flex-col items-center justify-center text-center py-14 border border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
+            <div className="w-11 h-11 rounded-2xl bg-white flex items-center justify-center mb-3 border border-slate-100 shadow-sm">
+              <History size={20} strokeWidth={1.5} className="text-slate-300" />
+            </div>
+            <span className="text-xs font-medium text-slate-500">คุณยังไม่มีประวัติการจองห้องแล็บ</span>
+            <span className="text-caption mt-0.5">เริ่มจองห้องแรกของคุณได้จากปุ่ม "จองห้องแล็บทันที" ด้านบน</span>
           </div>
         ) : (
-          <div className="border border-gray-100 rounded-xl overflow-x-auto">
-            <table className="w-full min-w-[480px] text-xs">
-              <thead>
-                <tr className="bg-gray-50/80 text-gray-500 text-left border-b border-gray-100">
-                  <th className="py-3 px-4 font-semibold">วันที่</th>
-                  <th className="py-3 px-4 font-semibold">เวลา</th>
-                  <th className="py-3 px-4 font-semibold">ห้อง</th>
-                  <th className="py-3 px-4 font-semibold text-center">สถานะ</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {myBookings.map((b, i) => (
-                  <tr key={i} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="py-3 px-4 text-gray-800 font-medium">{b.date}</td>
-                    <td className="py-3 px-4 text-gray-600">{b.slot}</td>
-                    <td className="py-3 px-4 text-gray-800">{b.room}</td>
-                    <td className="py-3 px-4 text-center">
-                      <Pill tone="green">ยืนยันแล้ว</Pill>
-                    </td>
+          <div className="border border-slate-200/80 rounded-2xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[540px] text-xs text-left">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-600 border-b border-slate-200/80">
+                    <th className="py-3.5 px-5 font-semibold">วันที่</th>
+                    <th className="py-3.5 px-5 font-semibold">ช่วงเวลา</th>
+                    <th className="py-3.5 px-5 font-semibold">ห้องแล็บ</th>
+                    <th className="py-3.5 px-5 font-semibold text-center">สถานะ</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {myBookings.map((b, i) => (
+                    <tr key={i} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="py-3.5 px-5 font-medium text-ink">{b.date}</td>
+                      <td className="py-3.5 px-5 text-slate-600">{b.slot}</td>
+                      <td className="py-3.5 px-5 font-medium text-slate-800">{b.room}</td>
+                      <td className="py-3.5 px-5 text-center">
+                        <Pill tone="green" withDot>ยืนยันแล้ว</Pill>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </Card>

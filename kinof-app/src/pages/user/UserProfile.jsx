@@ -1,117 +1,141 @@
 import React from "react";
-import TopBar from "../../components/TopBar";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
-import { NAVY, NAVY2, GOLD } from "../../theme";
-import { scheduleRows as mockScheduleRows } from "../../data/mockData";
+import { User, Mail, Hash, BookOpen, AlertCircle, Award } from "lucide-react";
 
-// ข้อมูลจำลองประวัติการหักคะแนน
-const initialPenaltyHistory = [
-  {
-    id: 1,
-    date: "2 เมษายน 2569",
-    points: 5,
-    reason: "ไม่มาใช้ห้องแล็บตามวัน-เวลาที่จองไว้",
-  },
+const myScheduleRows = [
+  { day: "วันจันทร์", course: "IT319 / Low-Code and No-Code Development Platform", time: "09.00 น. - 11.30 น.", room: "ห้องแล็บ 1" },
+  { day: "วันจันทร์", course: "IT320 / Web Application Development", time: "13.30 น. - 16.00 น.", room: "ห้องแล็บ 3" },
+  { day: "วันอังคาร", course: "— ไม่มีคาบเรียน —", time: "", room: "" },
+  { day: "วันพุธ", course: "IT453 / Robotic Process Automation Development", time: "14.00 น. - 16.30 น.", room: "ห้องแล็บ 3" },
+  { day: "วันพฤหัสบดี", course: "IT464 / Web Administration", time: "16.30 น. - 19.00 น.", room: "ห้องแล็บ 2" },
+  { day: "วันศุกร์", course: "— ไม่มีคาบเรียน —", time: "", room: "" },
+  { day: "วันเสาร์", course: "— ไม่มีคาบเรียน —", time: "", room: "" }
 ];
 
-// TODO(backend): profile + score -> GET /api/users/me, schedule -> GET /api/schedule/me, penalties -> GET /api/penalties/me
-export default function UserProfile({ scheduleRows = mockScheduleRows, userScore = 95 }) {
+const initialPenaltyHistory = [
+  { id: 1, date: "2 เมษายน 2569", points: 5, reason: "ไม่มาใช้ห้องแล็บตามวัน-เวลาที่จองไว้" },
+];
+
+export default function UserProfile({ scheduleRows = myScheduleRows, userScore = 95 }) {
   const penaltyHistory = initialPenaltyHistory;
+  const scoreBarClass = userScore >= 80 ? "bg-teal-500" : userScore >= 50 ? "bg-gold-gradient" : "bg-rose-500";
 
   return (
-    <div className="w-full">
-      <TopBar name="สมหญิง ส." />
-      <h1 className="text-base md:text-lg font-medium text-gray-900 mb-4">โปรไฟล์</h1>
-
-      {/* แบนเนอร์ต้อนรับ */}
-      <div
-        className="rounded-2xl text-white p-5 md:p-6 mb-6 shadow-sm"
-        style={{ background: `linear-gradient(120deg, ${NAVY}, ${NAVY2})` }}
-      >
-        <div className="font-semibold text-sm md:text-base mb-1">สวัสดี สมหญิง!</div>
-        <div className="text-xs text-blue-100 font-light">
-          ข้อมูลและรายละเอียดโปรไฟล์ของคุณ
-        </div>
+    <div className="w-full max-w-6xl mx-auto">
+      <div className="mb-5">
+        <h1 className="text-xl md:text-2xl font-bold text-ink tracking-tight">โปรไฟล์ผู้ใช้งาน</h1>
+        <p className="text-caption mt-0.5">ข้อมูลส่วนตัว คะแนนพฤติกรรม และตารางเรียน</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+      {/* Grid Profile & Stats */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-7">
         {/* การ์ดข้อมูลส่วนตัว */}
-        <Card className="p-4 md:p-5 lg:col-span-2 flex flex-col justify-between">
+        <Card className="p-5 md:p-6 lg:col-span-2 flex flex-col justify-between">
           <div>
-            <div className="flex items-center gap-3.5 mb-5">
-              <div
-                className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-base shadow-sm shrink-0"
-                style={{ background: GOLD }}
-              >
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-navy-900 font-bold text-xl shadow-md shrink-0 bg-gold-gradient">
                 ส
               </div>
               <div>
-                <div className="font-semibold text-gray-900 text-sm mb-1">
-                  สมหญิง สวยงาม
+                <div className="flex items-center gap-2 mb-1">
+                  <h2 className="font-bold text-ink text-base md:text-lg">สมหญิง สวยงาม</h2>
+                  <Pill tone="blue" withDot>นักศึกษา</Pill>
                 </div>
-                <Pill tone="blue">นักศึกษา</Pill>
+                <p className="text-caption">คณะเทคโนโลยีสารสนเทศและนวัตกรรม</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-y-3 text-xs border-t border-gray-100 pt-4">
-              <div className="text-gray-500">อีเมล</div>
-              <div className="text-gray-800 font-medium truncate pr-2">somy@gmail.com</div>
-              <div className="text-gray-500">ชื่อบัญชี</div>
-              <div className="text-gray-800 font-medium">som_ying</div>
-              <div className="text-gray-500">รหัสผู้ใช้</div>
-              <div className="text-gray-800 font-medium">0005</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs border-t border-slate-100 pt-5">
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/70 border border-slate-100">
+                <Mail size={15} className="text-slate-400 shrink-0" />
+                <div>
+                  <span className="text-muted block text-[10px]">อีเมลมหาวิทยาลัย</span>
+                  <span className="text-slate-800 font-medium">somy@gmail.com</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/70 border border-slate-100">
+                <User size={15} className="text-slate-400 shrink-0" />
+                <div>
+                  <span className="text-muted block text-[10px]">ชื่อบัญชีผู้ใช้</span>
+                  <span className="text-slate-800 font-medium">som_ying</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/70 border border-slate-100">
+                <Hash size={15} className="text-slate-400 shrink-0" />
+                <div>
+                  <span className="text-muted block text-[10px]">รหัสประจำตัว</span>
+                  <span className="text-slate-800 font-medium">0005</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50/70 border border-slate-100">
+                <Award size={15} className="text-slate-400 shrink-0" />
+                <div>
+                  <span className="text-muted block text-[10px]">สถานะสิทธิ์การจอง</span>
+                  <span className="text-emerald-600 font-medium">ปกติ (ใช้งานได้สมบูรณ์)</span>
+                </div>
+              </div>
             </div>
           </div>
         </Card>
 
         {/* การ์ดสถิติ, คะแนน และประวัติการหักคะแนน */}
-        <Card className="p-4 md:p-5 flex flex-col gap-4">
+        <Card className="p-5 md:p-6 flex flex-col gap-4 justify-between">
           <div>
-            <div className="text-xs text-gray-400 font-medium mb-2">
-              สถิติการใช้งาน
+            <div className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
+              สถิติการใช้งานห้องแล็บ
             </div>
-            <div className="flex gap-3">
-              <div className="flex-1 text-center border border-gray-100 bg-gray-50/50 rounded-xl py-2.5">
-                <div className="font-bold text-gray-900 text-sm">3</div>
-                <div className="text-[10px] text-gray-400 mt-0.5">ครั้งที่จอง</div>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="text-center border border-slate-100 bg-slate-50/60 rounded-2xl py-3">
+                <div className="font-bold text-ink text-lg">3</div>
+                <div className="text-[10px] text-muted mt-0.5">ครั้งที่จองสำเร็จ</div>
               </div>
-              <div className="flex-1 text-center border border-gray-100 bg-gray-50/50 rounded-xl py-2.5">
-                <div className="font-bold text-gray-900 text-sm">5</div>
-                <div className="text-[10px] text-gray-400 mt-0.5">ชั่วโมงที่ใช้</div>
+              <div className="text-center border border-slate-100 bg-slate-50/60 rounded-2xl py-3">
+                <div className="font-bold text-ink text-lg">5</div>
+                <div className="text-[10px] text-muted mt-0.5">ชั่วโมงที่เข้าใช้งาน</div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-slate-700">คะแนนพฤติกรรม</span>
+                <span className="text-sm font-bold text-navy-800">{userScore}<span className="text-muted font-medium text-xs"> / 100</span></span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-slate-200/70 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${scoreBarClass}`}
+                  style={{ width: `${userScore}%` }}
+                />
               </div>
             </div>
           </div>
 
-          <div
-            className="rounded-xl py-2.5 text-center text-xs font-semibold text-white shadow-sm"
-            style={{ background: NAVY }}
-          >
-            {userScore} / 100 คะแนนการใช้งาน
-          </div>
-
-          {/* ส่วนประวัติการหักคะแนน */}
           <div>
-            <div className="text-xs font-semibold text-gray-800 mb-2">
-              ประวัติการหักคะแนน
+            <div className="text-xs font-semibold text-slate-700 mb-2 flex items-center gap-1.5">
+              <AlertCircle size={14} className="text-slate-400" />
+              <span>ประวัติการหักคะแนน</span>
             </div>
+
             <div className="flex flex-col gap-2">
               {penaltyHistory.length > 0 ? (
                 penaltyHistory.map((item) => (
                   <div
                     key={item.id}
-                    className="border border-gray-200 rounded-xl p-3.5 bg-white text-xs"
+                    className="border border-rose-100 rounded-xl p-3 bg-rose-50/30 text-xs"
                   >
-                    <div className="font-semibold text-gray-800 mb-1">
-                      {item.date} - หัก {item.points} คะแนน
+                    <div className="font-semibold text-rose-800 mb-0.5">
+                      {item.date} • หัก {item.points} คะแนน
                     </div>
-                    <div className="text-gray-600 font-light leading-relaxed">
+                    <div className="text-slate-600 font-light leading-relaxed text-[11px]">
                       สาเหตุ: {item.reason}
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="text-xs text-gray-400 text-center py-3 border border-dashed border-gray-200 rounded-xl">
+                <div className="text-xs text-muted text-center py-4 border border-dashed border-slate-200 rounded-xl">
                   ไม่มีประวัติการหักคะแนน
                 </div>
               )}
@@ -121,32 +145,36 @@ export default function UserProfile({ scheduleRows = mockScheduleRows, userScore
       </div>
 
       {/* ตารางเรียน */}
-      <Card className="p-4 md:p-5">
-        <div className="text-sm font-semibold text-gray-800 mb-3">ตารางเรียน</div>
-        <div className="overflow-x-auto">
-          <div className="flex flex-col gap-2 min-w-[480px]">
-            {scheduleRows && scheduleRows.length > 0 ? (
-              scheduleRows.map((r, i) => (
-                <div
-                  key={r.day || i}
-                  className="flex items-center border border-gray-100 rounded-xl overflow-hidden text-xs hover:bg-gray-50/40 transition-colors"
-                >
-                  <div className="bg-gray-50 text-gray-600 font-medium px-4 py-3 w-28 shrink-0">
-                    {r.day}
+      <Card className="p-5 md:p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <BookOpen size={17} className="text-slate-500" />
+          <h3 className="text-sm md:text-base font-bold text-ink">ตารางเรียนประจำภาคการศึกษา</h3>
+        </div>
+
+        <div className="border border-slate-200/80 rounded-2xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <div className="flex flex-col divide-y divide-slate-100 min-w-[500px]">
+              {scheduleRows && scheduleRows.length > 0 ? (
+                scheduleRows.map((r, i) => (
+                  <div
+                    key={`${r.day}-${r.course}-${i}`}
+                    className="flex items-center text-xs hover:bg-slate-50/50 transition-colors"
+                  >
+                    <div className="bg-slate-50 text-slate-700 font-semibold px-5 py-3.5 w-32 shrink-0 border-r border-slate-100">
+                      {r.day}
+                    </div>
+                    <div className="px-5 py-3.5 flex-1 font-medium text-slate-800">
+                      {r.course || "— ไม่มีคาบเรียน —"}
+                    </div>
+                    <div className="px-5 py-3.5 text-slate-500 w-60 shrink-0 text-right font-light">
+                      {r.time} {r.room && <span className="font-medium text-slate-700">· {r.room}</span>}
+                    </div>
                   </div>
-                  <div className="px-4 py-3 flex-1 text-gray-800 font-normal">
-                    {r.course || "— ไม่มีคาบเรียน —"}
-                  </div>
-                  <div className="px-4 py-3 text-gray-500 w-52 shrink-0 text-right">
-                    {r.time} {r.room && `· ${r.room}`}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-xs text-gray-400 text-center py-6 border border-dashed border-gray-200 rounded-xl">
-                ไม่พบข้อมูลตารางเรียน
-              </div>
-            )}
+                ))
+              ) : (
+                <div className="text-xs text-muted text-center py-8">ไม่พบข้อมูลตารางเรียน</div>
+              )}
+            </div>
           </div>
         </div>
       </Card>
