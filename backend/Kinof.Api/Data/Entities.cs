@@ -5,6 +5,8 @@ public enum UserStatus { Active, Disabled }
 public enum RoomStatus { Open, Closed, Maintenance }
 public enum SeatStatus { Available, Occupied, Offline }
 public enum BookingStatus { Confirmed, Cancelled, Completed, Expired }
+public enum InvitationStatus { Pending, Accepted, Declined }
+public enum ProblemReportStatus { Pending, InProgress, Resolved }
 public enum AuthMethod { Face, OtpFallback }
 public enum AuthResult { Granted, Denied }
 
@@ -133,6 +135,65 @@ public sealed class Booking
     public DateTime StartTime { get; set; }
     public DateTime EndTime { get; set; }
     public BookingStatus Status { get; set; } = BookingStatus.Confirmed;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class BookingGroup
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid BookingId { get; set; }
+    public Guid OwnerUserId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class GroupMember
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid GroupId { get; set; }
+    public Guid UserId { get; set; }
+    public DateTime JoinedAt { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class Invitation
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid GroupId { get; set; }
+    public Guid InviterUserId { get; set; }
+    public Guid InviteeUserId { get; set; }
+    public InvitationStatus Status { get; set; } = InvitationStatus.Pending;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? RespondedAt { get; set; }
+}
+
+public sealed class Notification
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid UserId { get; set; }
+    public required string Message { get; set; }
+    public Guid? InvitationId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? ReadAt { get; set; }
+}
+
+public sealed class ProblemReport
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid UserId { get; set; }
+    public required string Category { get; set; }
+    public required string Description { get; set; }
+    public ProblemReportStatus Status { get; set; } = ProblemReportStatus.Pending;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class ProblemReportImage
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid ProblemReportId { get; set; }
+    public required string StoredFileName { get; set; }
+    public required string OriginalFileName { get; set; }
+    public required string ContentType { get; set; }
+    public long SizeBytes { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 

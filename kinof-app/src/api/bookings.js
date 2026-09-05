@@ -16,11 +16,30 @@ export function getMyBookings() {
   return apiFetch("/api/bookings/me");
 }
 
-export function createBooking({ roomId, startTime, endTime }) {
+export function createBooking({ roomId, startTime, endTime, inviteeUserIds = [] }) {
   return apiFetch("/api/bookings", {
     method: "POST",
-    body: JSON.stringify({ roomId, startTime, endTime }),
+    body: JSON.stringify({ roomId, startTime, endTime, inviteeUserIds }),
   });
+}
+
+export function searchUsers(query) {
+  return apiFetch(`/api/invitations/users?query=${encodeURIComponent(query)}`);
+}
+
+export function getMyInvitations() {
+  return apiFetch("/api/invitations/me");
+}
+
+export function acceptInvitation(id) {
+  return apiFetch(`/api/invitations/${id}/accept`, {
+    method: "POST",
+    body: JSON.stringify({ confirm: true }),
+  });
+}
+
+export function declineInvitation(id) {
+  return apiFetch(`/api/invitations/${id}/decline`, { method: "POST" });
 }
 
 export const BOOKING_SLOTS = [
@@ -43,10 +62,17 @@ export function formatThaiDate(dateValue) {
     day: "numeric",
     month: "short",
     year: "numeric",
-  }).format(dateValue);
+  }).format(parseStoredDate(dateValue));
+}
+
+export function parseStoredDate(dateValue) {
+  if (typeof dateValue === "string" && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(dateValue)) {
+    return new Date(`${dateValue}Z`);
+  }
+  return new Date(dateValue);
 }
 
 export function formatSlotLabel(startTime, endTime) {
   const fmt = new Intl.DateTimeFormat("th-TH", { hour: "2-digit", minute: "2-digit" });
-  return `${fmt.format(new Date(startTime))} - ${fmt.format(new Date(endTime))}`;
+  return `${fmt.format(parseStoredDate(startTime))} - ${fmt.format(parseStoredDate(endTime))}`;
 }

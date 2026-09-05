@@ -27,6 +27,8 @@ builder.Services.AddHttpClient<IFaceEmbeddingClient, FaceEmbeddingClient>((servi
 });
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<BookingService>();
+builder.Services.AddScoped<InvitationService>();
+builder.Services.AddScoped<ProblemReportService>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
     policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
         .AllowAnyHeader()
@@ -73,6 +75,69 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
+
+var problemReports = app.MapGroup("/api/problem-reports").RequireAuthorization();
+problemReports.MapPost("/", async (
+    HttpRequest request,
+    ClaimsPrincipal user,
+    ProblemReportService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    if (userId is null) return Results.Unauthorized();
+    if (!request.HasFormContentType) return Results.BadRequest(new { message = "รองรับเฉพาะ multipart form-data" });
+    var form = await request.ReadFormAsync(cancellationToken);
+    return await service.CreateAsync(userId.Value, form["category"], form["description"], form.Files, cancellationToken);
+});
+problemReports.MapGet("/me", (
+    ClaimsPrincipal user,
+    ProblemReportService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.GetMineAsync(userId.Value, cancellationToken);
+});
+problemReports.MapGet("/", (
+    ClaimsPrincipal user,
+    ProblemReportService service,
+    CancellationToken cancellationToken) =>
+    IsAdmin(user) ? service.GetAllAsync(cancellationToken) : Task.FromResult(Results.Forbid()));
+problemReports.MapGet("/{reportId:guid}", (
+    Guid reportId,
+    ClaimsPrincipal user,
+    ProblemReportService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.GetDetailsAsync(reportId, userId, IsAdmin(user), cancellationToken);
+});
+problemReports.MapPatch("/{reportId:guid}/status", async (
+    Guid reportId,
+    HttpRequest request,
+    ClaimsPrincipal user,
+    ProblemReportService service,
+    CancellationToken cancellationToken) =>
+{
+    if (!IsAdmin(user)) return Results.Forbid();
+    var payload = await request.ReadFromJsonAsync<UpdateProblemReportStatusRequest>(cancellationToken);
+    return await service.UpdateStatusAsync(reportId, payload?.Status, cancellationToken);
+});
+problemReports.MapGet("/{reportId:guid}/images/{imageId:guid}", (
+    Guid reportId,
+    Guid imageId,
+    ClaimsPrincipal user,
+    ProblemReportService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.GetImageAsync(reportId, imageId, userId, IsAdmin(user), cancellationToken);
+});
 
 var auth = app.MapGroup("/api/auth").RequireRateLimiting("auth");
 auth.MapPost("/register", (
@@ -150,6 +215,52 @@ bookings.MapPost("/", (
         : service.CreateBookingAsync(userId.Value, request, cancellationToken);
 });
 
+var invitations = app.MapGroup("/api/invitations").RequireAuthorization();
+invitations.MapGet("/users", (
+    string? query,
+    ClaimsPrincipal user,
+    InvitationService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.SearchUsersAsync(userId.Value, query, cancellationToken);
+});
+invitations.MapGet("/me", (
+    ClaimsPrincipal user,
+    InvitationService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.GetMyInvitationsAsync(userId.Value, cancellationToken);
+});
+invitations.MapPost("/{invitationId:guid}/accept", (
+    Guid invitationId,
+    AcceptInvitationRequest request,
+    ClaimsPrincipal user,
+    InvitationService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.AcceptAsync(userId.Value, invitationId, request, cancellationToken);
+});
+invitations.MapPost("/{invitationId:guid}/decline", (
+    Guid invitationId,
+    ClaimsPrincipal user,
+    InvitationService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.DeclineAsync(userId.Value, invitationId, cancellationToken);
+});
+
 var rooms = app.MapGroup("/api/rooms").RequireAuthorization();
 rooms.MapGet("/", (
     BookingService service,
@@ -163,3 +274,7 @@ rooms.MapGet("/available", (
     service.GetAvailableRoomsAsync(startTime, endTime, cancellationToken));
 
 app.Run();
+
+static bool IsAdmin(ClaimsPrincipal user) => user.IsInRole("admin");
+
+public sealed record UpdateProblemReportStatusRequest(string Status);

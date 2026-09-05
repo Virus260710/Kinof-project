@@ -35,8 +35,9 @@ import AdminMonitor from "./pages/admin/AdminMonitor";
 import AdminExport from "./pages/admin/AdminExport";
 import AdminHelpCenter from "./pages/admin/AdminHelpCenter";
 
-import { initialTickets, initialBlocked } from "./data/mockData";
-import { getMyBookings, formatThaiDate, formatSlotLabel } from "./api/bookings";
+import { initialBlocked } from "./data/mockData";
+import { getMyBookings, formatThaiDate, formatSlotLabel, parseStoredDate } from "./api/bookings";
+import { getMyProblemReports, getProblemReports } from "./api/problemReports";
 import { getMe, readStoredAuth, storeAuth } from "./api/auth";
 import { BG_APP } from "./theme";
 import { getDisplayName } from "./utils/displayName";
@@ -67,18 +68,18 @@ function readStoredJson(storage, key) {
 function mapBookingRow(booking) {
   return {
     id: booking.id,
-    date: formatThaiDate(new Date(booking.startTime)),
+    date: formatThaiDate(booking.startTime),
     slot: formatSlotLabel(booking.startTime, booking.endTime),
     room: booking.room,
-    startTime: booking.startTime,
-    endTime: booking.endTime,
+    startTime: parseStoredDate(booking.startTime).toISOString(),
+    endTime: parseStoredDate(booking.endTime).toISOString(),
     status: booking.status,
   };
 }
 
 export default function App() {
   const navigate = useNavigate();
-  const [auth, setAuth] = useState(() => readStoredJson(localStorage, "kinofAuth"));
+  const [auth, setAuth] = useState(() => readStoredJson(sessionStorage, "kinofAuth"));
   const [bootstrapping, setBootstrapping] = useState(() => Boolean(readStoredAuth()));
   const [pendingLogin, setPendingLogin] = useState(() => readStoredJson(sessionStorage, "kinofPendingLogin"));
   const role = auth?.user?.userType === "admin" ? "admin" : "user";
@@ -88,14 +89,14 @@ export default function App() {
   const notify = (t) => setToast(t);
 
   const [myBookings, setMyBookings] = useState([]);
-  const [tickets, setTickets] = useState(initialTickets);
+  const [tickets, setTickets] = useState([]);
   const [blocked, setBlocked] = useState(initialBlocked);
 
   useEffect(() => {
     let active = true;
     const storedAuth = readStoredAuth();
     if (!storedAuth?.accessToken && !storedAuth?.refreshToken) {
-      localStorage.removeItem("kinofAuth");
+      sessionStorage.removeItem("kinofAuth");
       setAuth(null);
       setBootstrapping(false);
       return () => {
@@ -117,7 +118,7 @@ export default function App() {
       })
       .catch(() => {
         if (!active) return;
-        localStorage.removeItem("kinofAuth");
+        sessionStorage.removeItem("kinofAuth");
         setAuth(null);
         navigate("/login", { replace: true });
       })
@@ -135,6 +136,12 @@ export default function App() {
     getMyBookings()
       .then((rows) => setMyBookings(rows.map(mapBookingRow)))
       .catch(() => {});
+  }, [auth?.accessToken, bootstrapping, role]);
+
+  useEffect(() => {
+    if (bootstrapping || !auth?.accessToken) return;
+    const load = role === "admin" ? getProblemReports : getMyProblemReports;
+    load().then(setTickets).catch(() => setTickets([]));
   }, [auth?.accessToken, bootstrapping, role]);
 
   const handleOtpRequired = (loginResult) => {
@@ -168,7 +175,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("kinofAuth");
+    sessionStorage.removeItem("kinofAuth");
     sessionStorage.removeItem("kinofPendingLogin");
     setAuth(null);
     setPendingLogin(null);
@@ -217,7 +224,7 @@ export default function App() {
         {role === "user" && page === "help" && (
           <UserHelp
             tickets={tickets}
-            addTicket={(t) => setTickets([...tickets, t])}
+            onSubmitted={(ticket) => setTickets((current) => [ticket, ...current])}
             notify={notify}
           />
         )}

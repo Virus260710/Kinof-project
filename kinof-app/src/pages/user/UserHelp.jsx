@@ -1,19 +1,33 @@
-import React, { useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Camera, Image as ImageIcon, X, Plus, Eye, Calendar, FileText, Send, HelpCircle } from "lucide-react";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import Button from "../../components/Button";
+import { createProblemReport, loadProblemImage } from "../../api/problemReports";
 
-export default function UserHelp({ tickets = [], addTicket, notify }) {
+export default function UserHelp({ tickets = [], onSubmitted, notify }) {
   const [topic, setTopic] = useState("");
   const [detail, setDetail] = useState("");
   const [images, setImages] = useState([]);
   const [showSourceModal, setShowSourceModal] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
+  const [loadedImages, setLoadedImages] = useState({});
 
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
+
+  useEffect(() => {
+    let active = true;
+    const attachments = tickets.flatMap((ticket) => ticket.images ?? []);
+    Promise.all(attachments.map(async (image) => [image.id, await loadProblemImage(image.url)]))
+      .then((entries) => active && setLoadedImages(Object.fromEntries(entries)))
+      .catch(() => {});
+    return () => {
+      active = false;
+      Object.values(loadedImages).forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [tickets]);
 
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
@@ -22,13 +36,11 @@ export default function UserHelp({ tickets = [], addTicket, notify }) {
     const availableSlots = 3 - images.length;
     const filesToProcess = files.slice(0, availableSlots);
 
-    filesToProcess.forEach((file) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImages((prev) => (prev.length < 3 ? [...prev, reader.result] : prev));
-      };
-      reader.readAsDataURL(file);
-    });
+    const validFiles = filesToProcess.filter((file) => file.type.startsWith("image/") && file.size <= 5 * 1024 * 1024);
+    setImages((prev) => [
+      ...prev,
+      ...validFiles.map((file) => ({ file, preview: URL.createObjectURL(file) })),
+    ].slice(0, 3));
 
     e.target.value = "";
     setShowSourceModal(false);
@@ -38,33 +50,26 @@ export default function UserHelp({ tickets = [], addTicket, notify }) {
     setImages((prev) => prev.filter((_, index) => index !== indexToRemove));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const trimmedTopic = topic.trim();
     const trimmedDetail = detail.trim();
     if (!trimmedTopic || !trimmedDetail) return;
 
-    const newTicket = {
-      id: Date.now(),
-      user: "som_ying",
-      title: trimmedTopic,
-      room: "-",
-      machine: "-",
-      detail: trimmedDetail,
-      images,
-      status: "รอดำเนินการ",
-      createdAt: new Date().toLocaleDateString("th-TH", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      }),
-    };
-
-    if (addTicket) addTicket(newTicket);
-    if (notify) notify("ส่งคำร้องขอความช่วยเหลือเรียบร้อยแล้ว");
-
-    setTopic("");
-    setDetail("");
-    setImages([]);
+    try {
+      const report = await createProblemReport({
+        category: trimmedTopic,
+        description: trimmedDetail,
+        files: images.map((image) => image.file),
+      });
+      onSubmitted?.(report);
+      notify?.("ส่งคำร้องขอความช่วยเหลือเรียบร้อยแล้ว");
+      setTopic("");
+      setDetail("");
+      images.forEach((image) => URL.revokeObjectURL(image.preview));
+      setImages([]);
+    } catch (error) {
+      notify?.(error.message);
+    }
   };
 
   return (
@@ -128,7 +133,7 @@ export default function UserHelp({ tickets = [], addTicket, notify }) {
                     <div key={index} className="aspect-square relative">
                       {imgUrl ? (
                         <div className="w-full h-full rounded-2xl border border-slate-200 overflow-hidden relative group shadow-sm">
-                          <img src={imgUrl} alt={`attached-${index}`} className="w-full h-full object-cover" />
+                          <img src={imgUrl.preview} alt={`attached-${index}`} className="w-full h-full object-cover" />
                           <button
                             type="button"
                             onClick={() => handleRemoveImage(index)}
@@ -177,14 +182,12 @@ export default function UserHelp({ tickets = [], addTicket, notify }) {
               <h3 className="text-sm md:text-base font-bold text-ink">ประวัติการส่งคำร้องของคุณ</h3>
             </div>
             <span className="text-caption">
-              {tickets.filter((t) => t.user === "som_ying").length} คำร้อง
+              {tickets.length} คำร้อง
             </span>
           </div>
 
           <div className="flex flex-col gap-3">
-            {tickets
-              .filter((t) => t.user === "som_ying")
-              .map((t) => (
+            {tickets.map((t) => (
                 <div
                   key={t.id}
                   onClick={() => setSelectedTicket(t)}
@@ -217,7 +220,7 @@ export default function UserHelp({ tickets = [], addTicket, notify }) {
                       {t.images && t.images.length > 0 && (
                         <div className="flex gap-1">
                           {t.images.map((img, i) => (
-                            <img key={i} src={img} alt="attachment" className="w-6 h-6 rounded-md object-cover border border-slate-200" />
+                            <img key={i} src={loadedImages[img.id]} alt="attachment" className="w-6 h-6 rounded-md object-cover border border-slate-200" />
                           ))}
                         </div>
                       )}
@@ -233,7 +236,7 @@ export default function UserHelp({ tickets = [], addTicket, notify }) {
                 </div>
               ))}
 
-            {tickets.filter((t) => t.user === "som_ying").length === 0 && (
+            {tickets.length === 0 && (
               <div className="text-xs text-muted text-center py-16 border border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
                 ยังไม่มีประวัติการส่งคำร้อง
               </div>
@@ -300,7 +303,7 @@ export default function UserHelp({ tickets = [], addTicket, notify }) {
                         onClick={() => setPreviewImage(img)}
                         className="aspect-square rounded-2xl overflow-hidden border border-slate-200 cursor-pointer group relative shadow-sm"
                       >
-                        <img src={img} alt={`large-${index}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                        <img src={loadedImages[img.id]} alt={`large-${index}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white text-xs font-medium gap-1">
                           <Eye size={14} /> ขยาย
                         </div>

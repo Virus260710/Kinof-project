@@ -2,14 +2,14 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5106";
 
 function readStoredAuth() {
   try {
-    return JSON.parse(localStorage.getItem("kinofAuth"));
+    return JSON.parse(sessionStorage.getItem("kinofAuth"));
   } catch {
     return null;
   }
 }
 
 function storeAuth(auth) {
-  localStorage.setItem("kinofAuth", JSON.stringify(auth));
+  sessionStorage.setItem("kinofAuth", JSON.stringify(auth));
 }
 
 async function parseResponse(response) {
@@ -43,9 +43,9 @@ async function get(path, token) {
 export async function apiFetch(path, options = {}) {
   const auth = readStoredAuth();
   const headers = {
-    "Content-Type": "application/json",
     ...(options.headers ?? {}),
   };
+  if (!(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
   if (auth?.accessToken) {
     headers.Authorization = `Bearer ${auth.accessToken}`;
   }
@@ -67,7 +67,7 @@ export async function apiFetch(path, options = {}) {
       headers.Authorization = `Bearer ${nextAuth.accessToken}`;
       response = await fetch(`${API_URL}${path}`, { ...options, headers });
     } catch {
-      localStorage.removeItem("kinofAuth");
+      sessionStorage.removeItem("kinofAuth");
       throw new Error("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่");
     }
   }

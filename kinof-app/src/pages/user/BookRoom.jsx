@@ -16,8 +16,8 @@ import {
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import Button from "../../components/Button";
-import { BOOKING_SLOTS, createBooking, getAvailableRooms, slotToRange } from "../../api/bookings";
-import { bookingScheduleConflicts, bookingUsers } from "../../data/mockData";
+import { BOOKING_SLOTS, createBooking, getAvailableRooms, parseStoredDate, searchUsers, slotToRange } from "../../api/bookings";
+import { bookingScheduleConflicts } from "../../data/mockData";
 
 const THAI_MONTHS = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -38,11 +38,10 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
   const [viewDate, setViewDate] = useState(new Date());
   const [slot, setSlot] = useState(null);
 
-  const [friends, setFriends] = useState([
-    { email: "kitti_sak5187@gmail.com", name: "กิตติ ศักดิ์", status: "joined" },
-    { email: "fighteiei@gmail.com", name: "ไฟท์", status: "pending" }
-  ]);
-  const [friendEmailInput, setFriendEmailInput] = useState("");
+  const [friends, setFriends] = useState([]);
+  const [friendSearchInput, setFriendSearchInput] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearchingUsers, setIsSearchingUsers] = useState(false);
   const [emailError, setEmailError] = useState(false);
 
   const [hasSearchedRooms, setHasSearchedRooms] = useState(false);
@@ -75,8 +74,8 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
     const { start, end } = slotToRange(selectedDate, checkSlot);
     return bookingsList.some((booking) => {
       if (booking.startTime && booking.endTime) {
-        return new Date(booking.startTime).getTime() === start.getTime()
-          && new Date(booking.endTime).getTime() === end.getTime();
+        return parseStoredDate(booking.startTime).getTime() === start.getTime()
+          && parseStoredDate(booking.endTime).getTime() === end.getTime();
       }
       return booking.date === formattedDate && booking.slot === checkSlot.label;
     });
@@ -133,45 +132,49 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
     return match ? `${match[2]} (${match[1]})` : slotStr;
   };
 
-  const handleAddFriend = () => {
+  const addFriend = (foundUser) => {
+    if (foundUser.email.toLowerCase() === userEmail.toLowerCase() || friends.some((f) => f.id === foundUser.id)) {
+      notify?.("ผู้ใช้นี้อยู่ในกลุ่มแล้ว หรือเป็นบัญชีของคุณเอง");
+      return;
+    }
+    setFriends((current) => [...current, { ...foundUser, status: "pending" }]);
+    setFriendSearchInput("");
+    setSearchResults([]);
     setEmailError(false);
-    const trimmed = friendEmailInput.trim().toLowerCase();
-    if (!trimmed) return;
+    notify?.(`เพิ่ม ${foundUser.name} เข้าสู่กลุ่มแล้ว`);
+  };
 
-    if (trimmed === userEmail.toLowerCase()) {
-      setEmailError(true);
-      return;
-    }
-
-    if (friends.some((f) => f.email.toLowerCase() === trimmed)) {
-      if (notify) notify("มีอีเมลนี้อยู่ในกลุ่มแล้ว");
-      return;
-    }
-
+  const handleAddFriend = async () => {
+    setEmailError(false);
+    const query = friendSearchInput.trim();
+    if (!query) return;
     if (friends.length >= 4) {
-      if (notify) notify("สามารถเชิญสมาชิกเข้าร่วมกลุ่มได้สูงสุด 5 คน รวมคุณแล้ว");
+      notify?.("สามารถเชิญสมาชิกเข้าร่วมกลุ่มได้สูงสุด 5 คน รวมคุณแล้ว");
       return;
     }
-
-    const foundUser = bookingUsers.find((u) => u.email.toLowerCase() === trimmed);
-    if (foundUser) {
-      setFriends([...friends, foundUser]);
-      setFriendEmailInput("");
-      if (notify) notify(`เพิ่ม ${foundUser.email} เข้าสู่กลุ่มแล้ว`);
-    } else {
-      setEmailError(true);
+    setIsSearchingUsers(true);
+    try {
+      const results = await searchUsers(query);
+      setSearchResults(results);
+      if (results.length === 1) addFriend(results[0]);
+      else if (results.length === 0) setEmailError(true);
+    } catch (error) {
+      notify?.(error.message);
+    } finally {
+      setIsSearchingUsers(false);
     }
   };
 
-  const handleRemoveFriend = (emailToRemove) => {
-    setFriends(friends.filter((f) => f.email !== emailToRemove));
+  const handleRemoveFriend = (id) => {
+    setFriends(friends.filter((f) => f.id !== id));
   };
 
   const handleClearGroup = () => {
     setFriends([]);
-    setFriendEmailInput("");
+    setFriendSearchInput("");
+    setSearchResults([]);
     setEmailError(false);
-    if (notify) notify("ลบรายชื่อสมาชิกในกลุ่มทั้งหมดแล้ว");
+    notify?.("ลบรายชื่อสมาชิกในกลุ่มทั้งหมดแล้ว");
   };
 
   const handleSearchAvailableRooms = async () => {
@@ -204,10 +207,11 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
         roomId: selectedRoom.id,
         startTime: start,
         endTime: end,
+        inviteeUserIds: friends.map((friend) => friend.id),
       });
       setBookingsList((prev) => [...prev, booking]);
       onBookingCreated?.(booking);
-      notify?.("ยืนยันการจองห้องแล็บเรียบร้อยแล้ว");
+      notify?.("ยืนยันการจองและส่งคำเชิญเรียบร้อยแล้ว");
       setIsSubmitted(true);
     } catch (error) {
       setRequestError(error.message);
@@ -224,7 +228,8 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
     setSelectedRoom(null);
     setHasSearchedRooms(false);
     setFriends([]);
-    setFriendEmailInput("");
+    setFriendSearchInput("");
+    setSearchResults([]);
     setEmailError(false);
     setRequestError("");
   };
@@ -441,7 +446,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
                   )}
                   <button
                     type="button"
-                    onClick={() => handleRemoveFriend(f.email)}
+                    onClick={() => handleRemoveFriend(f.id)}
                     className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-xs px-3 py-1 rounded-lg font-medium transition-colors"
                   >
                     ลบ
@@ -453,15 +458,31 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
             <div>
               <input
                 type="email"
-                value={friendEmailInput}
+                value={friendSearchInput}
                 onChange={(e) => {
-                  setFriendEmailInput(e.target.value);
+                  setFriendSearchInput(e.target.value);
                   setEmailError(false);
+                  setSearchResults([]);
                 }}
                 onKeyDown={(e) => e.key === "Enter" && handleAddFriend()}
-                placeholder="กรอกอีเมลของเพื่อนเพื่อเชิญเข้าร่วมกลุ่ม เช่น kitti_sak5187@gmail.com"
+                placeholder="ค้นหาด้วยชื่อหรืออีเมลของเพื่อน"
                 className="w-full text-xs border border-slate-200 rounded-xl px-4 py-3 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-navy-800 focus:ring-2 focus:ring-navy-800/10 transition-all"
               />
+              {searchResults.length > 1 && (
+                <div className="mt-2 border border-slate-200 rounded-xl overflow-hidden bg-white">
+                  {searchResults.map((result) => (
+                    <button
+                      type="button"
+                      key={result.id}
+                      onClick={() => addFriend(result)}
+                      className="w-full text-left px-4 py-2.5 text-xs hover:bg-slate-50 border-b last:border-b-0 border-slate-100"
+                    >
+                      <span className="block font-medium text-slate-800">{result.name}</span>
+                      <span className="text-slate-500">{result.email}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               {emailError && (
                 <div className="mt-2.5 flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-900 text-xs px-3.5 py-2 rounded-xl">
                   <AlertCircle size={14} className="text-amber-600 shrink-0" />
@@ -475,8 +496,8 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
               <Button variant="danger" size="sm" onClick={handleClearGroup}>
                 ลบกลุ่ม
               </Button>
-              <Button variant="secondary" size="sm" icon={Plus} iconPosition="left" onClick={handleAddFriend}>
-                เพิ่มเพื่อน
+                <Button variant="secondary" size="sm" icon={Plus} iconPosition="left" onClick={handleAddFriend} disabled={isSearchingUsers}>
+                {isSearchingUsers ? "กำลังค้นหา..." : "ค้นหาและเพิ่มเพื่อน"}
               </Button>
             </div>
           </Card>

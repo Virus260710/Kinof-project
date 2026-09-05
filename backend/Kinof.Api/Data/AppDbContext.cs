@@ -17,6 +17,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Schedule> Schedules => Set<Schedule>();
     public DbSet<ScheduleEnrollment> ScheduleEnrollments => Set<ScheduleEnrollment>();
     public DbSet<Booking> Bookings => Set<Booking>();
+    public DbSet<BookingGroup> BookingGroups => Set<BookingGroup>();
+    public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
+    public DbSet<Invitation> Invitations => Set<Invitation>();
+    public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<ProblemReport> ProblemReports => Set<ProblemReport>();
+    public DbSet<ProblemReportImage> ProblemReportImages => Set<ProblemReportImage>();
     public DbSet<AccessLog> AccessLogs => Set<AccessLog>();
     public DbSet<AgentLog> AgentLogs => Set<AgentLog>();
     public DbSet<WebsiteBlacklist> WebsiteBlacklist => Set<WebsiteBlacklist>();
@@ -117,6 +123,61 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<Room>().WithMany().HasForeignKey(x => x.RoomId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<Seat>().WithMany().HasForeignKey(x => x.SeatId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<BookingGroup>(entity =>
+        {
+            entity.ToTable("booking_groups");
+            entity.HasIndex(x => x.BookingId).IsUnique();
+            entity.HasOne<Booking>().WithOne().HasForeignKey<BookingGroup>(x => x.BookingId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.OwnerUserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GroupMember>(entity =>
+        {
+            entity.ToTable("group_members");
+            entity.HasIndex(x => new { x.GroupId, x.UserId }).IsUnique();
+            entity.HasOne<BookingGroup>().WithMany().HasForeignKey(x => x.GroupId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Invitation>(entity =>
+        {
+            entity.ToTable("invitations");
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            entity.HasIndex(x => new { x.GroupId, x.InviteeUserId }).IsUnique();
+            entity.HasOne<BookingGroup>().WithMany().HasForeignKey(x => x.GroupId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.InviterUserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.InviteeUserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.ToTable("notifications");
+            entity.Property(x => x.Message).HasMaxLength(500);
+            entity.HasIndex(x => new { x.UserId, x.CreatedAt });
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Invitation>().WithMany().HasForeignKey(x => x.InvitationId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ProblemReport>(entity =>
+        {
+            entity.ToTable("problem_reports");
+            entity.Property(x => x.Category).HasMaxLength(100);
+            entity.Property(x => x.Description).HasMaxLength(5000);
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            entity.HasIndex(x => new { x.UserId, x.CreatedAt });
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ProblemReportImage>(entity =>
+        {
+            entity.ToTable("problem_report_images");
+            entity.Property(x => x.OriginalFileName).HasMaxLength(255);
+            entity.Property(x => x.StoredFileName).HasMaxLength(255);
+            entity.Property(x => x.ContentType).HasMaxLength(100);
+            entity.HasIndex(x => x.ProblemReportId);
+            entity.HasOne<ProblemReport>().WithMany().HasForeignKey(x => x.ProblemReportId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<AccessLog>(entity =>

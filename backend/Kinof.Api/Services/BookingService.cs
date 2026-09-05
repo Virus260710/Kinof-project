@@ -6,9 +6,10 @@ namespace Kinof.Api.Services;
 public sealed record CreateBookingRequest(
     Guid RoomId,
     DateTime StartTime,
-    DateTime EndTime);
+    DateTime EndTime,
+    IReadOnlyCollection<Guid>? InviteeUserIds);
 
-public sealed class BookingService(AppDbContext db)
+public sealed class BookingService(AppDbContext db, InvitationService invitationService)
 {
     public async Task<IResult> GetRoomsAsync(CancellationToken cancellationToken)
     {
@@ -69,7 +70,13 @@ public sealed class BookingService(AppDbContext db)
     {
         var bookings = await db.Bookings
             .AsNoTracking()
-            .Where(x => x.UserId == userId && x.Status == BookingStatus.Confirmed)
+            .Where(x =>
+                x.Status == BookingStatus.Confirmed &&
+                (x.UserId == userId ||
+                 db.GroupMembers.Any(member =>
+                     member.UserId == userId &&
+                     db.BookingGroups.Any(group =>
+                         group.Id == member.GroupId && group.BookingId == x.Id))))
             .OrderByDescending(x => x.StartTime)
             .Join(
                 db.Rooms.AsNoTracking(),
@@ -117,6 +124,19 @@ public sealed class BookingService(AppDbContext db)
         if (hasConflict)
             return Results.Conflict(new { message = "ห้องนี้ถูกจองในช่วงเวลานี้แล้ว" });
 
+        if (await invitationService.HasTimeConflictAsync(userId, request.StartTime, request.EndTime, cancellationToken))
+            return Results.Conflict(new { message = "คุณมีการจองหรือเข้าร่วมกลุ่มในวันและเวลานี้แล้ว" });
+
+        var inviteeIds = (request.InviteeUserIds ?? Array.Empty<Guid>())
+            .Where(id => id != userId)
+            .Distinct()
+            .Take(4)
+            .ToArray();
+        var invitees = await db.Users
+            .Where(x => inviteeIds.Contains(x.Id) && x.Status == UserStatus.Active)
+            .ToListAsync(cancellationToken);
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var booking = new Booking
         {
             UserId = userId,
@@ -127,6 +147,31 @@ public sealed class BookingService(AppDbContext db)
         };
         db.Bookings.Add(booking);
         await db.SaveChangesAsync(cancellationToken);
+
+        if (invitees.Count > 0)
+        {
+            var group = new BookingGroup { BookingId = booking.Id, OwnerUserId = userId };
+            db.BookingGroups.Add(group);
+            db.GroupMembers.Add(new GroupMember { GroupId = group.Id, UserId = userId });
+            foreach (var invitee in invitees)
+            {
+                var invitation = new Invitation
+                {
+                    GroupId = group.Id,
+                    InviterUserId = userId,
+                    InviteeUserId = invitee.Id
+                };
+                db.Invitations.Add(invitation);
+                db.Notifications.Add(new Notification
+                {
+                    UserId = invitee.Id,
+                    InvitationId = invitation.Id,
+                    Message = $"คุณได้รับคำเชิญให้เข้าร่วมกลุ่มจองห้อง {room.Name} ในช่วงเวลาที่เลือก"
+                });
+            }
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        await transaction.CommitAsync(cancellationToken);
 
         return Results.Ok(new
         {
