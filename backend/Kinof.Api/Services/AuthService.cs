@@ -32,6 +32,7 @@ public sealed class AuthService(
     AppDbContext db,
     IEmailSender emailSender,
     IFaceEmbeddingClient faceEmbeddingClient,
+    ScheduleService scheduleService,
     IConfiguration configuration,
     ILogger<AuthService> logger)
 {
@@ -89,8 +90,14 @@ public sealed class AuthService(
         };
         if (userType is null)
             return ValidationError("ประเภทผู้ใช้ต้องเป็นนักศึกษาหรือบุคคลภายนอก");
-        if (userType == UserType.Student && string.IsNullOrWhiteSpace(request.StudentId))
-            return ValidationError("กรุณากรอกรหัสนักศึกษา");
+        if (userType == UserType.Student && !StudentIds.IsValid(request.StudentId))
+            return ValidationError("รหัสนักศึกษาต้องเป็นตัวเลข 10 หลัก");
+        var studentId = userType == UserType.Student ? StudentIds.Normalize(request.StudentId) : null;
+        if (studentId is not null &&
+            await db.Users.AnyAsync(x => x.StudentId == studentId, cancellationToken))
+        {
+            return Results.Conflict(new { message = "รหัสนักศึกษานี้ถูกใช้งานแล้ว" });
+        }
 
         if (await db.Users.AnyAsync(
                 x => x.Username.ToLower() == username || x.Email.ToLower() == email,
@@ -106,12 +113,13 @@ public sealed class AuthService(
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password, workFactor: 12),
             FirstName = request.FirstName.Trim(),
             LastName = request.LastName.Trim(),
-            StudentId = string.IsNullOrWhiteSpace(request.StudentId) ? null : request.StudentId.Trim(),
+            StudentId = studentId,
             Phone = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone.Trim(),
             UserType = userType.Value
         };
         db.Users.Add(user);
         await db.SaveChangesAsync(cancellationToken);
+        await scheduleService.LinkPendingForStudentAsync(user, cancellationToken);
 
         var sendResult = await TrySendOtpAsync(user, cancellationToken);
         return Results.Ok(new
@@ -545,6 +553,8 @@ public sealed class AuthService(
         email = user.Email,
         firstName = user.FirstName,
         lastName = user.LastName,
+        studentId = user.StudentId,
+        jobTitle = user.JobTitle,
         userType = user.UserType.ToString().ToLowerInvariant(),
         status = user.Status.ToString().ToLowerInvariant(),
         faceEnrolled = user.FaceEnrolled

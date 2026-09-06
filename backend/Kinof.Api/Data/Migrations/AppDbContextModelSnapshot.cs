@@ -642,10 +642,12 @@ namespace Kinof.Api.Data.Migrations
 
                     b.Property<string>("CourseCode")
                         .IsRequired()
+                        .HasMaxLength(50)
                         .HasColumnType("TEXT")
                         .HasColumnName("course_code");
 
                     b.Property<string>("CourseName")
+                        .HasMaxLength(255)
                         .HasColumnType("TEXT")
                         .HasColumnName("course_name");
 
@@ -657,11 +659,28 @@ namespace Kinof.Api.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("end_time");
 
+                    b.Property<string>("InstructorName")
+                        .HasMaxLength(255)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("instructor_name");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
                     b.Property<Guid>("RoomId")
                         .HasColumnType("TEXT")
                         .HasColumnName("room_id");
 
+                    b.Property<string>("Section")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("section");
+
                     b.Property<string>("Semester")
+                        .HasMaxLength(20)
                         .HasColumnType("TEXT")
                         .HasColumnName("semester");
 
@@ -669,9 +688,16 @@ namespace Kinof.Api.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("start_time");
 
+                    b.Property<string>("AcademicYear")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("academic_year");
+
                     b.HasKey("Id");
 
                     b.HasIndex("RoomId");
+
+                    b.HasIndex("RoomId", "DayOfWeek", "IsActive");
 
                     b.ToTable("schedules", (string)null);
                 });
@@ -699,6 +725,84 @@ namespace Kinof.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("schedule_enrollments", (string)null);
+                });
+
+            modelBuilder.Entity("Kinof.Api.Data.ScheduleEnrollmentPending", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("ScheduleId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("schedule_id");
+
+                    b.Property<string>("StudentId")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("student_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StudentId");
+
+                    b.HasIndex("ScheduleId", "StudentId")
+                        .IsUnique();
+
+                    b.ToTable("schedule_enrollment_pending", (string)null);
+                });
+
+            modelBuilder.Entity("Kinof.Api.Data.AdminAuditLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("action");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("actor_user_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Detail")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("detail");
+
+                    b.Property<string>("TargetId")
+                        .HasMaxLength(80)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_id");
+
+                    b.Property<string>("TargetType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("target_type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Action");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.ToTable("admin_audit_logs", (string)null);
                 });
 
             modelBuilder.Entity("Kinof.Api.Data.Seat", b =>
@@ -766,6 +870,11 @@ namespace Kinof.Api.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("TEXT")
                         .HasColumnName("last_name");
+
+                    b.Property<string>("JobTitle")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("job_title");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
@@ -1065,6 +1174,24 @@ namespace Kinof.Api.Data.Migrations
                     b.HasOne("Kinof.Api.Data.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Kinof.Api.Data.ScheduleEnrollmentPending", b =>
+                {
+                    b.HasOne("Kinof.Api.Data.Schedule", null)
+                        .WithMany()
+                        .HasForeignKey("ScheduleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Kinof.Api.Data.AdminAuditLog", b =>
+                {
+                    b.HasOne("Kinof.Api.Data.User", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

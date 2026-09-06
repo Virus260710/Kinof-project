@@ -54,22 +54,21 @@ npm run dev
 |---|---|---|
 | Login (email/password) | `pages/Login.jsx` | `POST /api/auth/login` |
 | Login ผ่าน Google/Facebook | `pages/Login.jsx` | `POST /api/auth/oauth/google`, `/facebook` |
-| ประวัติการจองของผู้ใช้ | `pages/user/UserHome.jsx`, `App.jsx` | `GET /api/bookings?user=me` |
+| ประวัติการจองของผู้ใช้ | `pages/user/UserHome.jsx`, `App.jsx` | `GET /api/bookings/me` |
 | ตารางเรียนของผู้ใช้ (เพื่อกำหนดห้องอัตโนมัติ) | `pages/user/BookRoom.jsx` | `GET /api/schedule/me?date=` |
-| ห้องว่างในแต่ละช่วงเวลา | `pages/user/BookRoom.jsx` | `GET /api/rooms/available?date=&slot=` |
-| ค้นหาเพื่อนเพื่อเชิญเข้ากลุ่ม | `pages/user/BookRoom.jsx` | `GET /api/users/lookup?email=` |
+| ห้องว่างในแต่ละช่วงเวลา | `pages/user/BookRoom.jsx` | `GET /api/rooms/available?startTime=&endTime=` |
+| ค้นหาเพื่อนเพื่อเชิญเข้ากลุ่ม | `pages/user/BookRoom.jsx` | `GET /api/invitations/users?query=` |
 | ยืนยันการจอง | `pages/user/BookRoom.jsx` | `POST /api/bookings` |
-| โปรไฟล์ + คะแนน | `pages/user/UserProfile.jsx` | `GET /api/users/me` |
-| คำร้องขอความช่วยเหลือ (ผู้ใช้) | `pages/user/UserHelp.jsx` | `GET/POST /api/tickets` |
+| โปรไฟล์ + คะแนน | `pages/user/UserProfile.jsx` | auth ใช้ `GET /api/auth/me`; คะแนนยังรอ API |
+| คำร้องขอความช่วยเหลือ (ผู้ใช้) | `pages/user/UserHelp.jsx` | `GET /api/problem-reports/me`, `POST /api/problem-reports` |
 | สรุปแดชบอร์ด (เครื่อง/ผู้ใช้งาน) | `pages/admin/AdminDashboard.jsx` | `GET /api/machines/summary`, `GET /api/sessions/active` |
 | ประวัติเข้า-ออกระบบ (login/logout log) | `pages/admin/AdminMonitor.jsx` | `GET /api/sessions?date=` |
 | โปรแกรมที่ถูกใช้งาน | `pages/admin/AdminMonitor.jsx` | `GET /api/usage/programs?date=` |
 | บล็อค/เลิกบล็อคเว็บไซต์ | `pages/admin/AdminMonitor.jsx` | `GET/POST/DELETE /api/websites/blocked` |
 | กิจกรรมน่าสงสัย + หักคะแนน | `pages/admin/AdminMonitor.jsx` | `GET /api/usage/flagged`, `POST /api/users/:id/penalize` |
 | ส่งออกรายงาน | `pages/admin/AdminExport.jsx` | `POST /api/exports` |
-| จัดการคำร้อง (รับเรื่อง/เสร็จสิ้น) | `pages/admin/AdminHelpCenter.jsx` | `GET /api/tickets`, `PATCH /api/tickets/:id` |
+| จัดการคำร้อง (รับเรื่อง/เสร็จสิ้น) | `pages/admin/AdminHelpCenter.jsx` | `GET /api/problem-reports`, `PATCH /api/problem-reports/:id/status` |
 | ประตูเปิดจากการสแกนใบหน้า (ยังไม่ทำ) | - | รอเลือกอุปกรณ์กล้อง/เอนจิน face recognition ก่อน |
 
-แนวทางแนะนำเมื่อเริ่มต่อ backend จริง: ย้าย state ใน `App.jsx` (myBookings, tickets, blocked) ออกไปเป็น data-fetching hook
-เช่น React Query หรือ SWR แทนการเก็บด้วย `useState` ตรง ๆ แล้วส่ง token จาก `Login.jsx` เก็บใน context/localStorage
-สำหรับแนบไปกับทุก request ที่ต้องยืนยันตัวตน
+ปัจจุบัน `App.jsx` เป็นเจ้าของ auth/routing และ state หลัก โดย auth เก็บใน
+`sessionStorage["kinofAuth"]`; API client ใน `src/api/` แนบ token และ refresh token ให้อัตโนมัติ

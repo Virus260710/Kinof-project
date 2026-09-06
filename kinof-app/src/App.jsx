@@ -7,8 +7,11 @@ import {
   HelpCircle,
   LayoutDashboard,
   ClipboardList,
+  Radar,
   Upload,
   LifeBuoy,
+  Database,
+  ScrollText,
 } from "lucide-react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 
@@ -31,16 +34,20 @@ import UserProfile from "./pages/user/UserProfile";
 import UserHelp from "./pages/user/UserHelp";
 
 import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminTracking from "./pages/admin/AdminTracking";
 import AdminMonitor from "./pages/admin/AdminMonitor";
 import AdminExport from "./pages/admin/AdminExport";
 import AdminHelpCenter from "./pages/admin/AdminHelpCenter";
+import AdminData from "./pages/admin/AdminData";
+import AdminAuditLog from "./pages/admin/AdminAuditLog";
 
 import { initialBlocked } from "./data/mockData";
-import { getMyBookings, formatThaiDate, formatSlotLabel, parseStoredDate } from "./api/bookings";
+import { getMyBookings, mapBookingRow } from "./api/bookings";
 import { getMyProblemReports, getProblemReports } from "./api/problemReports";
 import { getMe, readStoredAuth, storeAuth } from "./api/auth";
 import { BG_APP } from "./theme";
 import { getDisplayName } from "./utils/displayName";
+import { isStaffAdmin, isSuperAdmin } from "./utils/roles";
 
 const USER_NAV = [
   { key: "home", label: "หน้าหลัก", icon: Home },
@@ -52,8 +59,10 @@ const USER_NAV = [
 
 const ADMIN_NAV = [
   { key: "dashboard", label: "แดชบอร์ด", icon: LayoutDashboard },
+  { key: "tracking", label: "Tracking", icon: Radar },
   { key: "monitor", label: "ตรวจสอบการใช้งาน", icon: ClipboardList },
   { key: "export", label: "ส่งออกข้อมูล", icon: Upload },
+  { key: "data", label: "จัดการข้อมูล", icon: Database },
   { key: "helpcenter", label: "ศูนย์แก้ไขปัญหา", icon: LifeBuoy },
 ];
 
@@ -65,31 +74,20 @@ function readStoredJson(storage, key) {
   }
 }
 
-function mapBookingRow(booking) {
-  return {
-    id: booking.id,
-    date: formatThaiDate(booking.startTime),
-    slot: formatSlotLabel(booking.startTime, booking.endTime),
-    room: booking.room,
-    startTime: parseStoredDate(booking.startTime).toISOString(),
-    endTime: parseStoredDate(booking.endTime).toISOString(),
-    status: booking.status,
-  };
-}
-
 export default function App() {
   const navigate = useNavigate();
-  const [auth, setAuth] = useState(() => readStoredJson(sessionStorage, "kinofAuth"));
+  const [auth, setAuth] = useState(() => readStoredAuth());
   const [bootstrapping, setBootstrapping] = useState(() => Boolean(readStoredAuth()));
   const [pendingLogin, setPendingLogin] = useState(() => readStoredJson(sessionStorage, "kinofPendingLogin"));
-  const role = auth?.user?.userType === "admin" ? "admin" : "user";
+  const role = isStaffAdmin(auth?.user?.userType) ? "admin" : "user";
   const [page, setPage] = useState(() => (role === "admin" ? "dashboard" : "home"));
   const [toast, setToast] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [trackingNav, setTrackingNav] = useState(null);
   const notify = (t) => setToast(t);
 
   const [myBookings, setMyBookings] = useState([]);
-  const [tickets, setTickets] = useState([]);
+  const [problemReports, setProblemReports] = useState([]);
   const [blocked, setBlocked] = useState(initialBlocked);
 
   useEffect(() => {
@@ -114,7 +112,7 @@ export default function App() {
         const nextAuth = { ...currentAuth, user };
         storeAuth(nextAuth);
         setAuth(nextAuth);
-        setPage(user.userType === "admin" ? "dashboard" : "home");
+        setPage(isStaffAdmin(user.userType) ? "dashboard" : "home");
       })
       .catch(() => {
         if (!active) return;
@@ -141,7 +139,7 @@ export default function App() {
   useEffect(() => {
     if (bootstrapping || !auth?.accessToken) return;
     const load = role === "admin" ? getProblemReports : getMyProblemReports;
-    load().then(setTickets).catch(() => setTickets([]));
+    load().then(setProblemReports).catch(() => setProblemReports([]));
   }, [auth?.accessToken, bootstrapping, role]);
 
   const handleOtpRequired = (loginResult) => {
@@ -160,8 +158,8 @@ export default function App() {
     sessionStorage.removeItem("kinofPendingLogin");
     setPendingLogin(null);
     setAuth(nextAuth);
-    setPage(result.user.userType === "admin" ? "dashboard" : "home");
-    if (!result.user.faceEnrolled && result.user.userType !== "admin") {
+    setPage(isStaffAdmin(result.user.userType) ? "dashboard" : "home");
+    if (!result.user.faceEnrolled && !isStaffAdmin(result.user.userType)) {
       navigate("/register/face");
       return;
     }
@@ -183,12 +181,29 @@ export default function App() {
     navigate("/login");
   };
 
+  const handleSetPage = (nextPage) => {
+    if (nextPage === "tracking") setTrackingNav(null);
+    setPage(nextPage);
+  };
+
+  const openTrackingRoom = (roomId) => {
+    setTrackingNav({ roomId });
+    setPage("tracking");
+  };
+
+  const openTrackingSeat = ({ roomId, seatId }) => {
+    setTrackingNav({ roomId, seatId });
+    setPage("tracking");
+  };
+
   const appShell = (
     <div className="flex min-h-screen w-full" style={{ background: BG_APP }}>
       <Sidebar
-        items={role === "admin" ? ADMIN_NAV : USER_NAV}
+        items={role === "admin"
+          ? [...ADMIN_NAV, ...(isSuperAdmin(auth?.user?.userType) ? [{ key: "audit", label: "Log แอดมิน", icon: ScrollText }] : [])]
+          : USER_NAV}
         page={page}
-        setPage={setPage}
+        setPage={handleSetPage}
         roleLabel={role === "admin" ? "ระบบดูแลและจองห้องแล็บ" : "ระบบจองห้องแล็บ"}
         onLogout={handleLogout}
         isOpen={sidebarOpen}
@@ -216,26 +231,53 @@ export default function App() {
           <Invitation
             notify={notify}
             onInvitationAccepted={(booking) => (
-              setMyBookings((current) => [booking, ...current])
+              setMyBookings((current) => [mapBookingRow(booking), ...current])
             )}
           />
         )}
         {role === "user" && page === "profile" && <UserProfile auth={auth} />}
         {role === "user" && page === "help" && (
           <UserHelp
-            tickets={tickets}
-            onSubmitted={(ticket) => setTickets((current) => [ticket, ...current])}
+            problemReports={problemReports}
+            onSubmitted={(report) => setProblemReports((current) => [report, ...current])}
             notify={notify}
           />
         )}
 
-        {role === "admin" && page === "dashboard" && <AdminDashboard tickets={tickets} />}
+        {role === "admin" && page === "dashboard" && (
+          <AdminDashboard
+            problemReports={problemReports}
+            setPage={handleSetPage}
+            onOpenTrackingRoom={openTrackingRoom}
+          />
+        )}
+        {role === "admin" && page === "tracking" && (
+          <AdminTracking
+            notify={notify}
+            initialRoomId={trackingNav?.roomId}
+            initialSeatId={trackingNav?.seatId}
+            onOpenMonitor={() => setPage("monitor")}
+          />
+        )}
         {role === "admin" && page === "monitor" && (
-          <AdminMonitor blocked={blocked} setBlocked={setBlocked} notify={notify} />
+          <AdminMonitor
+            blocked={blocked}
+            setBlocked={setBlocked}
+            notify={notify}
+            onOpenTrackingSeat={openTrackingSeat}
+          />
         )}
         {role === "admin" && page === "export" && <AdminExport notify={notify} />}
+        {role === "admin" && page === "data" && <AdminData auth={auth} notify={notify} />}
+        {role === "admin" && page === "audit" && isSuperAdmin(auth?.user?.userType) && (
+          <AdminAuditLog notify={notify} />
+        )}
         {role === "admin" && page === "helpcenter" && (
-          <AdminHelpCenter tickets={tickets} setTickets={setTickets} notify={notify} />
+          <AdminHelpCenter
+            problemReports={problemReports}
+            setProblemReports={setProblemReports}
+            notify={notify}
+          />
         )}
       </div>
 
@@ -243,7 +285,7 @@ export default function App() {
     </div>
   );
 
-  const needsFaceEnroll = auth && !auth.user?.faceEnrolled && auth.user?.userType !== "admin";
+  const needsFaceEnroll = auth && !auth.user?.faceEnrolled && !isStaffAdmin(auth.user?.userType);
 
   if (bootstrapping) {
     return (

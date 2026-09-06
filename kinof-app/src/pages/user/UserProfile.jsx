@@ -1,16 +1,27 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import { User, Mail, Hash, BookOpen, AlertCircle, Award } from "lucide-react";
-import { penaltyHistory, scheduleRows as mockScheduleRows } from "../../data/mockData";
+import { penaltyHistory } from "../../data/mockData";
+import { getMySchedule, toProfileScheduleRows } from "../../api/schedules";
 
-// TODO(backend): replace scheduleRows after GET /api/schedule/me is available.
 // TODO(backend): replace score and penalty history when profile-stat endpoints are available.
-export default function UserProfile({ auth, scheduleRows = mockScheduleRows, userScore = 95 }) {
+export default function UserProfile({ auth, userScore = 95 }) {
   const user = auth?.user;
+  const [scheduleRows, setScheduleRows] = useState([]);
   const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "ผู้ใช้งาน";
   const userTypeLabel = user?.userType === "student" ? "นักศึกษา" : "บุคคลภายนอก";
   const scoreBarClass = userScore >= 80 ? "bg-teal-500" : userScore >= 50 ? "bg-gold-gradient" : "bg-rose-500";
+
+  useEffect(() => {
+    if (user?.userType !== "student") {
+      setScheduleRows([]);
+      return;
+    }
+    getMySchedule()
+      .then((items) => setScheduleRows(toProfileScheduleRows(items)))
+      .catch(() => setScheduleRows([]));
+  }, [user?.userType, user?.id]);
 
   return (
     <div className="w-full max-w-6xl mx-auto">

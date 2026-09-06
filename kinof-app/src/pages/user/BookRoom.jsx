@@ -17,7 +17,7 @@ import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import Button from "../../components/Button";
 import { BOOKING_SLOTS, createBooking, getAvailableRooms, parseStoredDate, searchUsers, slotToRange } from "../../api/bookings";
-import { bookingScheduleConflicts } from "../../data/mockData";
+import { findSlotClassConflict, getMySchedule } from "../../api/schedules";
 
 const THAI_MONTHS = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -50,12 +50,19 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [requestError, setRequestError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [mySchedule, setMySchedule] = useState([]);
 
   const [bookingsList, setBookingsList] = useState([...existingBookings]);
 
   useEffect(() => {
     setBookingsList([...existingBookings]);
   }, [existingBookings]);
+
+  useEffect(() => {
+    getMySchedule()
+      .then(setMySchedule)
+      .catch(() => setMySchedule([]));
+  }, []);
 
   const userEmail = auth?.user?.email ?? "—";
   const steps = ["1. เลือกวัน-เวลา", "2. จัดการสมาชิก-ดูห้อง", "3. ยืนยันการจอง"];
@@ -81,12 +88,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
     });
   };
 
-  const getSlotClassConflict = (checkSlot) => {
-    const selectedDayName = DAYS_OF_WEEK[selectedDate.getDay()];
-    return bookingScheduleConflicts.find((item) => (
-      item.day === selectedDayName && item.slotId === checkSlot.id
-    ));
-  };
+  const getSlotClassConflict = (checkSlot) => findSlotClassConflict(mySchedule, selectedDate, checkSlot);
 
   const handleSelectDate = (date) => {
     if (isPastDate(date)) return;

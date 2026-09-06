@@ -5,12 +5,12 @@ import Pill from "../../components/Pill";
 import Button from "../../components/Button";
 import { createProblemReport, loadProblemImage } from "../../api/problemReports";
 
-export default function UserHelp({ tickets = [], onSubmitted, notify }) {
-  const [topic, setTopic] = useState("");
-  const [detail, setDetail] = useState("");
+export default function UserHelp({ problemReports = [], onSubmitted, notify }) {
+  const [category, setCategory] = useState("");
+  const [description, setDescription] = useState("");
   const [images, setImages] = useState([]);
   const [showSourceModal, setShowSourceModal] = useState(false);
-  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [selectedReport, setSelectedReport] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [loadedImages, setLoadedImages] = useState({});
 
@@ -19,7 +19,7 @@ export default function UserHelp({ tickets = [], onSubmitted, notify }) {
 
   useEffect(() => {
     let active = true;
-    const attachments = tickets.flatMap((ticket) => ticket.images ?? []);
+    const attachments = problemReports.flatMap((report) => report.images ?? []);
     Promise.all(attachments.map(async (image) => [image.id, await loadProblemImage(image.url)]))
       .then((entries) => active && setLoadedImages(Object.fromEntries(entries)))
       .catch(() => {});
@@ -27,7 +27,7 @@ export default function UserHelp({ tickets = [], onSubmitted, notify }) {
       active = false;
       Object.values(loadedImages).forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [tickets]);
+  }, [problemReports]);
 
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
@@ -51,20 +51,20 @@ export default function UserHelp({ tickets = [], onSubmitted, notify }) {
   };
 
   const handleSubmit = async () => {
-    const trimmedTopic = topic.trim();
-    const trimmedDetail = detail.trim();
-    if (!trimmedTopic || !trimmedDetail) return;
+    const trimmedCategory = category.trim();
+    const trimmedDescription = description.trim();
+    if (!trimmedCategory || !trimmedDescription) return;
 
     try {
       const report = await createProblemReport({
-        category: trimmedTopic,
-        description: trimmedDetail,
+        category: trimmedCategory,
+        description: trimmedDescription,
         files: images.map((image) => image.file),
       });
       onSubmitted?.(report);
       notify?.("ส่งคำร้องขอความช่วยเหลือเรียบร้อยแล้ว");
-      setTopic("");
-      setDetail("");
+      setCategory("");
+      setDescription("");
       images.forEach((image) => URL.revokeObjectURL(image.preview));
       setImages([]);
     } catch (error) {
@@ -95,8 +95,8 @@ export default function UserHelp({ tickets = [], onSubmitted, notify }) {
                 หัวข้อปัญหา <span className="text-rose-500">*</span>
               </label>
               <select
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
                 className="w-full text-xs border border-slate-200 rounded-xl px-3.5 py-3 focus:outline-none focus:border-navy-800 focus:ring-2 focus:ring-navy-800/10 bg-white"
               >
                 <option value="">-- เลือกหัวข้อปัญหา --</option>
@@ -112,8 +112,8 @@ export default function UserHelp({ tickets = [], onSubmitted, notify }) {
                 รายละเอียดปัญหา <span className="text-rose-500">*</span>
               </label>
               <textarea
-                value={detail}
-                onChange={(e) => setDetail(e.target.value)}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
                 rows={4}
                 placeholder="ระบุรายละเอียด เช่น หมายเลขเครื่อง อาการ หรือภาพประกอบเพื่อความสะดวกรวดเร็ว..."
                 className="w-full text-xs border border-slate-200 rounded-xl p-3.5 focus:outline-none focus:border-navy-800 focus:ring-2 focus:ring-navy-800/10 resize-none placeholder:text-slate-300"
@@ -166,7 +166,7 @@ export default function UserHelp({ tickets = [], onSubmitted, notify }) {
               icon={Send}
               iconPosition="left"
               fullWidth
-              disabled={!topic.trim() || !detail.trim()}
+              disabled={!category.trim() || !description.trim()}
               onClick={handleSubmit}
             >
               ส่งคำร้องขอความช่วยเหลือ
@@ -182,50 +182,50 @@ export default function UserHelp({ tickets = [], onSubmitted, notify }) {
               <h3 className="text-sm md:text-base font-bold text-ink">ประวัติการส่งคำร้องของคุณ</h3>
             </div>
             <span className="text-caption">
-              {tickets.length} คำร้อง
+              {problemReports.length} คำร้อง
             </span>
           </div>
 
           <div className="flex flex-col gap-3">
-            {tickets.map((t) => (
+            {problemReports.map((report) => (
                 <div
-                  key={t.id}
-                  onClick={() => setSelectedTicket(t)}
+                  key={report.id}
+                  onClick={() => setSelectedReport(report)}
                   className="group flex flex-col border border-slate-200/80 rounded-2xl p-4 text-xs gap-2.5 bg-white hover:border-slate-300 hover:shadow-soft transition-all cursor-pointer"
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-ink font-bold group-hover:text-navy-800 transition-colors truncate pr-2">
-                      {t.title}
+                      {report.category}
                     </span>
                     <Pill
                       tone={
-                        t.status === "เสร็จสิ้น"
+                        report.status === "เสร็จสิ้น"
                           ? "green"
-                          : t.status === "กำลังดำเนินการ"
+                          : report.status === "กำลังดำเนินการ"
                           ? "blue"
                           : "amber"
                       }
                       withDot
                     >
-                      {t.status}
+                      {report.status}
                     </Pill>
                   </div>
 
                   <p className="text-slate-500 text-[11px] line-clamp-2 leading-relaxed font-light">
-                    {t.detail}
+                    {report.description}
                   </p>
 
                   <div className="flex items-center justify-between pt-2 border-t border-slate-100">
                     <div className="flex items-center gap-2">
-                      {t.images && t.images.length > 0 && (
+                      {report.images && report.images.length > 0 && (
                         <div className="flex gap-1">
-                          {t.images.map((img, i) => (
+                          {report.images.map((img, i) => (
                             <img key={i} src={loadedImages[img.id]} alt="attachment" className="w-6 h-6 rounded-md object-cover border border-slate-200" />
                           ))}
                         </div>
                       )}
                       <span className="text-[10px] text-muted flex items-center gap-1">
-                        <Calendar size={11} /> {t.createdAt}
+                        <Calendar size={11} /> {report.createdAt}
                       </span>
                     </div>
 
@@ -236,7 +236,7 @@ export default function UserHelp({ tickets = [], onSubmitted, notify }) {
                 </div>
               ))}
 
-            {tickets.length === 0 && (
+            {problemReports.length === 0 && (
               <div className="text-xs text-muted text-center py-16 border border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
                 ยังไม่มีประวัติการส่งคำร้อง
               </div>
@@ -246,7 +246,7 @@ export default function UserHelp({ tickets = [], onSubmitted, notify }) {
       </div>
 
       {/* Modal รายละเอียดคำร้อง */}
-      {selectedTicket && (
+      {selectedReport && (
         <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 max-h-[90vh] flex flex-col animate-scale-in">
             <div className="p-5 text-white flex items-center justify-between shrink-0 bg-brand-gradient">
@@ -256,7 +256,7 @@ export default function UserHelp({ tickets = [], onSubmitted, notify }) {
               </div>
               <button
                 type="button"
-                onClick={() => setSelectedTicket(null)}
+                onClick={() => setSelectedReport(null)}
                 aria-label="ปิดหน้าต่าง"
                 className="text-white/80 hover:text-white hover:bg-white/10 p-1.5 rounded-full transition-colors"
               >
@@ -268,39 +268,39 @@ export default function UserHelp({ tickets = [], onSubmitted, notify }) {
               <div className="flex items-start justify-between border-b border-slate-100 pb-3">
                 <div>
                   <span className="text-[10px] text-muted font-semibold uppercase tracking-wider block mb-0.5">หัวข้อ</span>
-                  <h4 className="text-base font-bold text-ink">{selectedTicket.title}</h4>
+                  <h4 className="text-base font-bold text-ink">{selectedReport.category}</h4>
                 </div>
                 <Pill
                   tone={
-                    selectedTicket.status === "เสร็จสิ้น"
+                    selectedReport.status === "เสร็จสิ้น"
                       ? "green"
-                      : selectedTicket.status === "กำลังดำเนินการ"
+                      : selectedReport.status === "กำลังดำเนินการ"
                       ? "blue"
                       : "amber"
                   }
                   withDot
                 >
-                  {selectedTicket.status}
+                  {selectedReport.status}
                 </Pill>
               </div>
 
               <div>
                 <span className="text-[10px] text-muted font-semibold uppercase tracking-wider block mb-1">รายละเอียด</span>
                 <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-xs text-slate-700 leading-relaxed whitespace-pre-line">
-                  {selectedTicket.detail}
+                  {selectedReport.description}
                 </div>
               </div>
 
-              {selectedTicket.images && selectedTicket.images.length > 0 && (
+              {selectedReport.images && selectedReport.images.length > 0 && (
                 <div>
                   <span className="text-[10px] text-muted font-semibold uppercase tracking-wider block mb-2">
-                    รูปภาพแนบ ({selectedTicket.images.length} รูป)
+                    รูปภาพแนบ ({selectedReport.images.length} รูป)
                   </span>
                   <div className="grid grid-cols-3 gap-3">
-                    {selectedTicket.images.map((img, index) => (
+                    {selectedReport.images.map((img, index) => (
                       <div
                         key={index}
-                        onClick={() => setPreviewImage(img)}
+                        onClick={() => setPreviewImage(loadedImages[img.id])}
                         className="aspect-square rounded-2xl overflow-hidden border border-slate-200 cursor-pointer group relative shadow-sm"
                       >
                         <img src={loadedImages[img.id]} alt={`large-${index}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
@@ -315,7 +315,7 @@ export default function UserHelp({ tickets = [], onSubmitted, notify }) {
             </div>
 
             <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end shrink-0">
-              <Button variant="secondary" onClick={() => setSelectedTicket(null)}>
+              <Button variant="secondary" onClick={() => setSelectedReport(null)}>
                 ปิดหน้าต่าง
               </Button>
             </div>

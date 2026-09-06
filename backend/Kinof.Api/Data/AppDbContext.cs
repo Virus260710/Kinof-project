@@ -16,6 +16,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Agent> Agents => Set<Agent>();
     public DbSet<Schedule> Schedules => Set<Schedule>();
     public DbSet<ScheduleEnrollment> ScheduleEnrollments => Set<ScheduleEnrollment>();
+    public DbSet<ScheduleEnrollmentPending> ScheduleEnrollmentPendings => Set<ScheduleEnrollmentPending>();
+    public DbSet<AdminAuditLog> AdminAuditLogs => Set<AdminAuditLog>();
     public DbSet<Booking> Bookings => Set<Booking>();
     public DbSet<BookingGroup> BookingGroups => Set<BookingGroup>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
@@ -42,6 +44,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.Property(x => x.FirstName).HasMaxLength(100);
             entity.Property(x => x.LastName).HasMaxLength(100);
             entity.Property(x => x.Phone).HasMaxLength(20);
+            entity.Property(x => x.JobTitle).HasMaxLength(100);
             entity.Property(x => x.UserType).HasConversion<string>().HasMaxLength(20);
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
         });
@@ -105,6 +108,14 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<Schedule>(entity =>
         {
             entity.ToTable("schedules");
+            entity.Property(x => x.CourseCode).HasMaxLength(50);
+            entity.Property(x => x.CourseName).HasMaxLength(255);
+            entity.Property(x => x.Section).HasMaxLength(50);
+            entity.Property(x => x.InstructorName).HasMaxLength(255);
+            entity.Property(x => x.AcademicYear).HasMaxLength(20);
+            entity.Property(x => x.Semester).HasMaxLength(20);
+            entity.Property(x => x.IsActive).HasDefaultValue(true);
+            entity.HasIndex(x => new { x.RoomId, x.DayOfWeek, x.IsActive });
             entity.HasOne<Room>().WithMany().HasForeignKey(x => x.RoomId).OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -114,6 +125,26 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.HasIndex(x => new { x.ScheduleId, x.UserId }).IsUnique();
             entity.HasOne<Schedule>().WithMany().HasForeignKey(x => x.ScheduleId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ScheduleEnrollmentPending>(entity =>
+        {
+            entity.ToTable("schedule_enrollment_pending");
+            entity.Property(x => x.StudentId).HasMaxLength(20);
+            entity.HasIndex(x => new { x.ScheduleId, x.StudentId }).IsUnique();
+            entity.HasIndex(x => x.StudentId);
+            entity.HasOne<Schedule>().WithMany().HasForeignKey(x => x.ScheduleId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AdminAuditLog>(entity =>
+        {
+            entity.ToTable("admin_audit_logs");
+            entity.Property(x => x.Action).HasMaxLength(80);
+            entity.Property(x => x.TargetType).HasMaxLength(50);
+            entity.Property(x => x.TargetId).HasMaxLength(80);
+            entity.HasIndex(x => x.CreatedAt);
+            entity.HasIndex(x => x.Action);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.ActorUserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<Booking>(entity =>

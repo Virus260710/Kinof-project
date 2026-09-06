@@ -1,13 +1,11 @@
-import { apiFetch } from "./auth";
-
-export const PROBLEM_REPORTS_API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5106";
+import { API_URL, apiFetch, readStoredAuth } from "./auth";
 
 export function problemImageUrl(url) {
-  return url.startsWith("http") ? url : `${PROBLEM_REPORTS_API_URL}${url}`;
+  return url.startsWith("http") ? url : `${API_URL}${url}`;
 }
 
 export async function loadProblemImage(url) {
-  const auth = JSON.parse(sessionStorage.getItem("kinofAuth") ?? "null");
+  const auth = readStoredAuth();
   const response = await fetch(problemImageUrl(url), {
     headers: auth?.accessToken ? { Authorization: `Bearer ${auth.accessToken}` } : {},
   });

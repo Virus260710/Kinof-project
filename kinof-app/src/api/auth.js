@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5106";
+export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5106";
 
 function readStoredAuth() {
   try {
