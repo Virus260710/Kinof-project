@@ -42,6 +42,21 @@ export function declineInvitation(id) {
   return apiFetch(`/api/invitations/${id}/decline`, { method: "POST" });
 }
 
+export function mapBookingRow(booking) {
+  return {
+    id: booking.id,
+    roomId: booking.roomId,
+    room: booking.room,
+    building: booking.building,
+    date: formatThaiDate(booking.startTime),
+    slot: formatSlotLabel(booking.startTime, booking.endTime),
+    startTime: parseStoredDate(booking.startTime).toISOString(),
+    endTime: parseStoredDate(booking.endTime).toISOString(),
+    status: booking.status,
+    createdAt: booking.createdAt,
+  };
+}
+
 export const BOOKING_SLOTS = [
   { id: 1, label: "รอบที่ 1  09.00 น. - 11.30 น.", startHour: 9, startMinute: 0, endHour: 11, endMinute: 30 },
   { id: 2, label: "รอบที่ 2  11.30 น. - 14.00 น.", startHour: 11, startMinute: 30, endHour: 14, endMinute: 0 },

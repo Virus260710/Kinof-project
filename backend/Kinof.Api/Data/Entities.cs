@@ -1,6 +1,6 @@
 namespace Kinof.Api.Data;
 
-public enum UserType { Student, Staff, External, Admin }
+public enum UserType { Student, Staff, External, Admin, SuperAdmin }
 public enum UserStatus { Active, Disabled }
 public enum RoomStatus { Open, Closed, Maintenance }
 public enum SeatStatus { Available, Occupied, Offline }
@@ -20,6 +20,7 @@ public sealed class User
     public required string FirstName { get; set; }
     public required string LastName { get; set; }
     public string? Phone { get; set; }
+    public string? JobTitle { get; set; }
     public UserType UserType { get; set; }
     public UserStatus Status { get; set; } = UserStatus.Active;
     public bool FaceEnrolled { get; set; }
@@ -113,10 +114,14 @@ public sealed class Schedule
     public Guid RoomId { get; set; }
     public required string CourseCode { get; set; }
     public string? CourseName { get; set; }
+    public string? Section { get; set; }
+    public string? InstructorName { get; set; }
     public int DayOfWeek { get; set; }
     public TimeOnly StartTime { get; set; }
     public TimeOnly EndTime { get; set; }
+    public string? AcademicYear { get; set; }
     public string? Semester { get; set; }
+    public bool IsActive { get; set; } = true;
 }
 
 public sealed class ScheduleEnrollment
@@ -124,6 +129,25 @@ public sealed class ScheduleEnrollment
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ScheduleId { get; set; }
     public Guid UserId { get; set; }
+}
+
+public sealed class ScheduleEnrollmentPending
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid ScheduleId { get; set; }
+    public required string StudentId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class AdminAuditLog
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid ActorUserId { get; set; }
+    public required string Action { get; set; }
+    public required string TargetType { get; set; }
+    public string? TargetId { get; set; }
+    public string? Detail { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 public sealed class Booking

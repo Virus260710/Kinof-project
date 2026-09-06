@@ -1,6 +1,7 @@
 using System.Text;
 using System.Threading.RateLimiting;
 using System.Security.Claims;
+using Kinof.Api;
 using Kinof.Api.Data;
 using Kinof.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -29,6 +30,10 @@ builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<BookingService>();
 builder.Services.AddScoped<InvitationService>();
 builder.Services.AddScoped<ProblemReportService>();
+builder.Services.AddScoped<AuditLogService>();
+builder.Services.AddScoped<AdminUserService>();
+builder.Services.AddScoped<RoomAdminService>();
+builder.Services.AddScoped<ScheduleService>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
     policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
         .AllowAnyHeader()
@@ -103,7 +108,7 @@ problemReports.MapGet("/", (
     ClaimsPrincipal user,
     ProblemReportService service,
     CancellationToken cancellationToken) =>
-    IsAdmin(user) ? service.GetAllAsync(cancellationToken) : Task.FromResult(Results.Forbid()));
+    IsStaff(user) ? service.GetAllAsync(cancellationToken) : Task.FromResult(Results.Forbid()));
 problemReports.MapGet("/{reportId:guid}", (
     Guid reportId,
     ClaimsPrincipal user,
@@ -113,7 +118,7 @@ problemReports.MapGet("/{reportId:guid}", (
     var userId = AuthService.GetUserId(user);
     return userId is null
         ? Task.FromResult(Results.Unauthorized())
-        : service.GetDetailsAsync(reportId, userId, IsAdmin(user), cancellationToken);
+        : service.GetDetailsAsync(reportId, userId, IsStaff(user), cancellationToken);
 });
 problemReports.MapPatch("/{reportId:guid}/status", async (
     Guid reportId,
@@ -122,7 +127,7 @@ problemReports.MapPatch("/{reportId:guid}/status", async (
     ProblemReportService service,
     CancellationToken cancellationToken) =>
 {
-    if (!IsAdmin(user)) return Results.Forbid();
+    if (!IsStaff(user)) return Results.Forbid();
     var payload = await request.ReadFromJsonAsync<UpdateProblemReportStatusRequest>(cancellationToken);
     return await service.UpdateStatusAsync(reportId, payload?.Status, cancellationToken);
 });
@@ -136,7 +141,7 @@ problemReports.MapGet("/{reportId:guid}/images/{imageId:guid}", (
     var userId = AuthService.GetUserId(user);
     return userId is null
         ? Task.FromResult(Results.Unauthorized())
-        : service.GetImageAsync(reportId, imageId, userId, IsAdmin(user), cancellationToken);
+        : service.GetImageAsync(reportId, imageId, userId, IsStaff(user), cancellationToken);
 });
 
 var auth = app.MapGroup("/api/auth").RequireRateLimiting("auth");
@@ -273,8 +278,10 @@ rooms.MapGet("/available", (
     CancellationToken cancellationToken) =>
     service.GetAvailableRoomsAsync(startTime, endTime, cancellationToken));
 
+app.MapAdminAndScheduleEndpoints();
+
 app.Run();
 
-static bool IsAdmin(ClaimsPrincipal user) => user.IsInRole("admin");
+static bool IsStaff(ClaimsPrincipal user) => StaffAuth.IsStaff(user);
 
 public sealed record UpdateProblemReportStatusRequest(string Status);

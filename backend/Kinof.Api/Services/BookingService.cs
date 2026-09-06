@@ -9,7 +9,7 @@ public sealed record CreateBookingRequest(
     DateTime EndTime,
     IReadOnlyCollection<Guid>? InviteeUserIds);
 
-public sealed class BookingService(AppDbContext db, InvitationService invitationService)
+public sealed class BookingService(AppDbContext db, InvitationService invitationService, ScheduleService scheduleService)
 {
     public async Task<IResult> GetRoomsAsync(CancellationToken cancellationToken)
     {
@@ -61,7 +61,15 @@ public sealed class BookingService(AppDbContext db, InvitationService invitation
             })
             .ToListAsync(cancellationToken);
 
-        return Results.Ok(rooms);
+        var available = new List<object>();
+        foreach (var room in rooms)
+        {
+            if (await scheduleService.RoomHasScheduleOverlapAsync(room.id, startTime, endTime, cancellationToken))
+                continue;
+            available.Add(room);
+        }
+
+        return Results.Ok(available);
     }
 
     public async Task<IResult> GetMyBookingsAsync(
@@ -123,6 +131,9 @@ public sealed class BookingService(AppDbContext db, InvitationService invitation
             cancellationToken);
         if (hasConflict)
             return Results.Conflict(new { message = "ห้องนี้ถูกจองในช่วงเวลานี้แล้ว" });
+
+        if (await scheduleService.RoomHasScheduleOverlapAsync(request.RoomId, request.StartTime, request.EndTime, cancellationToken))
+            return Results.Conflict(new { message = "ห้องนี้มีตารางเรียนในช่วงเวลานี้" });
 
         if (await invitationService.HasTimeConflictAsync(userId, request.StartTime, request.EndTime, cancellationToken))
             return Results.Conflict(new { message = "คุณมีการจองหรือเข้าร่วมกลุ่มในวันและเวลานี้แล้ว" });

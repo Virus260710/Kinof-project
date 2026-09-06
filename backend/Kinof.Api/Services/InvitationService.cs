@@ -87,6 +87,10 @@ public sealed class InvitationService(AppDbContext db)
         if (booking is null || booking.Status != BookingStatus.Confirmed)
             return Results.Conflict(new { message = "การจองของกลุ่มนี้ไม่สามารถเข้าร่วมได้แล้ว" });
 
+        var room = await db.Rooms
+            .AsNoTracking()
+            .SingleAsync(x => x.Id == booking.RoomId, cancellationToken);
+
         var hasConflict = await HasTimeConflictAsync(userId, booking.StartTime, booking.EndTime, cancellationToken);
         if (hasConflict)
             return Results.Conflict(new { message = "คุณมีการจองหรือเข้าร่วมกลุ่มในวันและเวลานี้แล้ว" });
@@ -106,6 +110,9 @@ public sealed class InvitationService(AppDbContext db)
         return Results.Ok(new
         {
             id = booking.Id,
+            roomId = room.Id,
+            room = room.Name,
+            building = room.Building,
             startTime = booking.StartTime,
             endTime = booking.EndTime,
             status = "joined"

@@ -27,6 +27,11 @@ public interface IEmailSender
         string firstName,
         string resetLink,
         CancellationToken cancellationToken);
+    Task<EmailDeliveryResult> SendAdminInviteEmailAsync(
+        string email,
+        string firstName,
+        string inviteLink,
+        CancellationToken cancellationToken);
 }
 
 public sealed record EmailDeliveryResult(bool Delivered, string Mode);
@@ -125,6 +130,53 @@ public sealed class EmailSender(
         return await SendSmtpOrDevConsoleFallbackAsync(
             message,
             $"Development email fallback (SMTP send failed): password reset link for {email} is {resetLink} (valid 1 hour)",
+            cancellationToken);
+    }
+
+    public async Task<EmailDeliveryResult> SendAdminInviteEmailAsync(
+        string email,
+        string firstName,
+        string inviteLink,
+        CancellationToken cancellationToken)
+    {
+        var smtpConfigured =
+            !string.IsNullOrWhiteSpace(_options.SmtpHost) &&
+            !string.IsNullOrWhiteSpace(_options.Username) &&
+            !string.IsNullOrWhiteSpace(_options.Password);
+        if (!smtpConfigured)
+        {
+            if (!environment.IsDevelopment())
+                throw new InvalidOperationException("Email SMTP credentials must be configured outside Development.");
+
+            logger.LogWarning(
+                "Development email fallback: admin invite link for {Email} is {InviteLink} (valid 48 hours)",
+                email,
+                inviteLink);
+            return new EmailDeliveryResult(false, "console");
+        }
+
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress(_options.FromName, _options.FromAddress));
+        message.To.Add(MailboxAddress.Parse(email));
+        message.Subject = "ตั้งรหัสผ่านผู้ดูแลระบบ KINOF";
+        message.Body = new TextPart("plain")
+        {
+            Text = $"""
+                    สวัสดี {firstName},
+
+                    Superadmin ได้สร้างบัญชีผู้ดูแลระบบให้คุณแล้ว
+                    เปิดลิงก์ด้านล่างเพื่อตั้งรหัสผ่าน:
+                    {inviteLink}
+
+                    ลิงก์นี้ใช้ได้ 48 ชั่วโมง หลังจากนั้นเข้าสู่ระบบด้วยรหัสผ่านและ OTP อีเมล
+
+                    — KINOF ระบบจองห้องแล็บ
+                    """
+        };
+
+        return await SendSmtpOrDevConsoleFallbackAsync(
+            message,
+            $"Development email fallback (SMTP send failed): admin invite link for {email} is {inviteLink} (valid 48 hours)",
             cancellationToken);
     }
 

@@ -3,6 +3,7 @@ import { ArrowLeft, KeyRound, Mail } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Card from "../components/Card";
 import { resendEmailOtp, verifyEmailOtp } from "../api/auth";
+import { isStaffAdmin } from "../utils/roles";
 import { GOLD, NAVY } from "../theme";
 
 export default function OtpVerify({ pendingLogin, onVerified }) {
@@ -25,7 +26,7 @@ export default function OtpVerify({ pendingLogin, onVerified }) {
     setLoading(true);
     try {
       const result = await verifyEmailOtp(pendingLogin.userId, code);
-      const isAdmin = result.user.userType === "admin";
+      const isAdmin = isStaffAdmin(result.user.userType);
       if ((pendingLogin.expectedRole === "admin") !== isAdmin) {
         setError("ประเภทบัญชีไม่ตรงกับหน้าที่เลือก กรุณากลับไปเลือกประเภทผู้ใช้ใหม่");
         return;

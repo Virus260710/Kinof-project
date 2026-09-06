@@ -29,6 +29,10 @@ export default function Register({ onOtpRequired }) {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError("");
+    if (form.userType === "student" && !/^\d{10}$/.test(form.studentId.trim())) {
+      setError("รหัสนักศึกษาต้องเป็นตัวเลข 10 หลัก");
+      return;
+    }
     if (form.password !== form.confirmPassword) {
       setError("รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน");
       return;
@@ -84,8 +88,17 @@ export default function Register({ onOtpRequired }) {
 
           {form.userType === "student" && (
             <label className="text-xs text-gray-600">
-              รหัสนักศึกษา
-              <input value={form.studentId} onChange={update("studentId")} required className={`${inputClass} mt-1`} />
+              รหัสนักศึกษา (10 หลัก)
+              <input
+                value={form.studentId}
+                onChange={(event) => setForm((current) => ({ ...current, studentId: event.target.value.replace(/\D/g, "").slice(0, 10) }))}
+                required
+                inputMode="numeric"
+                maxLength={10}
+                pattern="\d{10}"
+                title="กรุณากรอกรหัสนักศึกษา 10 หลัก"
+                className={`${inputClass} mt-1`}
+              />
             </label>
           )}
 

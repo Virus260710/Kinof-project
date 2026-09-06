@@ -9,11 +9,13 @@ public static class DbSeeder
         IConfiguration configuration,
         IHostEnvironment environment)
     {
+        await SeedSuperAdminsAsync(db, configuration, environment);
+
         if (!environment.IsDevelopment())
             return;
 
         var studentEmail = configuration["Seed:StudentEmail"] ?? "kittisak.sati@bumail.net";
-        if (await db.Users.AnyAsync())
+        if (await db.Users.AnyAsync(x => x.UserType != UserType.SuperAdmin))
         {
             var existingStudent = await db.Users.SingleOrDefaultAsync(x => x.Username == "student");
             if (existingStudent is not null && existingStudent.Email != studentEmail)
@@ -34,6 +36,7 @@ public static class DbSeeder
                 workFactor: 12),
             FirstName = "Admin",
             LastName = "System",
+            JobTitle = "ผู้ดูแลระบบ",
             UserType = UserType.Admin
         };
         var student = new User
@@ -89,6 +92,71 @@ public static class DbSeeder
             new WebsiteBlacklist { UrlPattern = "facebook.com", Category = "social" },
             new WebsiteBlacklist { UrlPattern = "tiktok.com", Category = "social" },
             new WebsiteBlacklist { UrlPattern = "twitter.com", Category = "social" });
+
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task SeedSuperAdminsAsync(
+        AppDbContext db,
+        IConfiguration configuration,
+        IHostEnvironment environment)
+    {
+        var password = configuration["Seed:SuperAdminPassword"];
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            if (!environment.IsDevelopment())
+                return;
+            password = "SuperAdmin123!";
+        }
+
+        var accounts = configuration.GetSection("Seed:SuperAdmins").GetChildren().ToList();
+        if (accounts.Count == 0)
+        {
+            accounts = null;
+        }
+
+        var defaults = new (string Username, string Email, string FirstName, string LastName)[]
+        {
+            ("superadmin1", "superadmin1@kinof.local", "Super", "One"),
+            ("superadmin2", "superadmin2@kinof.local", "Super", "Two"),
+            ("superadmin3", "superadmin3@kinof.local", "Super", "Three")
+        };
+
+        var passwordHash = BCrypt.Net.BCrypt.HashPassword(password, workFactor: 12);
+        for (var index = 0; index < 3; index++)
+        {
+            var username = accounts?.ElementAtOrDefault(index)?["Username"] ?? defaults[index].Username;
+            var email = accounts?.ElementAtOrDefault(index)?["Email"] ?? defaults[index].Email;
+            var firstName = accounts?.ElementAtOrDefault(index)?["FirstName"] ?? defaults[index].FirstName;
+            var lastName = accounts?.ElementAtOrDefault(index)?["LastName"] ?? defaults[index].LastName;
+            username = username.Trim().ToLowerInvariant();
+            email = email.Trim().ToLowerInvariant();
+
+            var existing = await db.Users.SingleOrDefaultAsync(x => x.Username == username);
+            if (existing is not null)
+            {
+                if (existing.UserType != UserType.SuperAdmin)
+                {
+                    existing.UserType = UserType.SuperAdmin;
+                    existing.UpdatedAt = DateTime.UtcNow;
+                }
+                continue;
+            }
+
+            if (await db.Users.AnyAsync(x => x.Email.ToLower() == email))
+                continue;
+
+            db.Users.Add(new User
+            {
+                Username = username,
+                Email = email,
+                PasswordHash = passwordHash,
+                FirstName = firstName,
+                LastName = lastName,
+                JobTitle = "ผู้ดูแลสูงสุด",
+                UserType = UserType.SuperAdmin
+            });
+        }
 
         await db.SaveChangesAsync();
     }
