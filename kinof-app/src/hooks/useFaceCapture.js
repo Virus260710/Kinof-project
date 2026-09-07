@@ -58,7 +58,20 @@ function isFaceCentered(box, width, height) {
   return dx < 0.12 && dy < 0.12 && size > 0.28 && size < 0.62;
 }
 
-export function useFaceCapture({ onCaptured, onError }) {
+/**
+ * Camera + MediaPipe capture loop shared by face enrollment and Kiosk face entry.
+ *
+ * `requireBlink` splits the two callers: enrollment asks for a blink before capturing,
+ * while the Kiosk (docs/AUTH_ADAPTIVE.md — no liveness needed at the door) only waits for
+ * a centred face to hold still for `holdMs` and skips the landmarker model entirely.
+ */
+export function useFaceCapture({
+  onCaptured,
+  onError,
+  requireBlink = true,
+  holdMs = 1500,
+  capturingHint = "กำลังบันทึกใบหน้า...",
+}) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const detectorRef = useRef(null);
@@ -89,6 +102,27 @@ export function useFaceCapture({ onCaptured, onError }) {
     setAttempt((current) => current + 1);
   }, [stopCamera]);
 
+  // Grabs the current frame right away — the auto-capture loop and the Kiosk's manual
+  // "ถ่ายภาพ" button both end up here.
+  const captureNow = useCallback(() => {
+    const video = videoRef.current;
+    if (capturedRef.current || !video?.videoWidth) return;
+    capturedRef.current = true;
+    setStatus("capturing");
+    setProgress(100);
+    setHint(capturingHint);
+    try {
+      const imageBase64 = captureFrame(video);
+      stopCamera();
+      onCaptured?.(imageBase64);
+    } catch (error) {
+      capturedRef.current = false;
+      setStatus("error");
+      setHint(cameraErrorMessage(error));
+      onError?.(error);
+    }
+  }, [capturingHint, onCaptured, onError, stopCamera]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -103,7 +137,7 @@ export function useFaceCapture({ onCaptured, onError }) {
         setHint("กำลังโหลด MediaPipe...");
         const vision = await FilesetResolver.forVisionTasks(WASM_BASE);
         let detector;
-        let landmarker;
+        let landmarker = null;
         try {
           detector = await FaceDetector.createFromOptions(vision, {
             baseOptions: { modelAssetPath: FACE_DETECTOR_MODEL, delegate: "GPU" },
@@ -116,25 +150,27 @@ export function useFaceCapture({ onCaptured, onError }) {
           });
         }
         detectorRef.current = detector;
-        try {
-          landmarker = await FaceLandmarker.createFromOptions(vision, {
-            baseOptions: { modelAssetPath: FACE_LANDMARKER_MODEL, delegate: "GPU" },
-            runningMode: "VIDEO",
-            numFaces: 1,
-            outputFaceBlendshapes: false,
-          });
-        } catch {
-          landmarker = await FaceLandmarker.createFromOptions(vision, {
-            baseOptions: { modelAssetPath: FACE_LANDMARKER_MODEL },
-            runningMode: "VIDEO",
-            numFaces: 1,
-            outputFaceBlendshapes: false,
-          });
+        if (requireBlink) {
+          try {
+            landmarker = await FaceLandmarker.createFromOptions(vision, {
+              baseOptions: { modelAssetPath: FACE_LANDMARKER_MODEL, delegate: "GPU" },
+              runningMode: "VIDEO",
+              numFaces: 1,
+              outputFaceBlendshapes: false,
+            });
+          } catch {
+            landmarker = await FaceLandmarker.createFromOptions(vision, {
+              baseOptions: { modelAssetPath: FACE_LANDMARKER_MODEL },
+              runningMode: "VIDEO",
+              numFaces: 1,
+              outputFaceBlendshapes: false,
+            });
+          }
         }
-        landmarkerRef.current = landmarker;
+        landmarkerRef.current = landmarker ?? null;
         if (cancelled) {
           detector.close();
-          landmarker.close();
+          landmarker?.close();
           detectorRef.current = null;
           landmarkerRef.current = null;
           return;
@@ -188,6 +224,15 @@ export function useFaceCapture({ onCaptured, onError }) {
                 blinkSeenRef.current = false;
                 setProgress(10);
                 setHint("ขยับใบหน้าให้อยู่กึ่งกลางกรอบ");
+              } else if (!requireBlink) {
+                if (!stableSinceRef.current) stableSinceRef.current = performance.now();
+                const stableMs = performance.now() - stableSinceRef.current;
+                setProgress(Math.min(99, 10 + Math.floor((stableMs / holdMs) * 90)));
+                setHint("อยู่นิ่ง ๆ กำลังจับภาพ...");
+                if (stableMs >= holdMs) {
+                  captureNow();
+                  return;
+                }
               } else if (!blinkArmedRef.current) {
                 if (!stableSinceRef.current) stableSinceRef.current = performance.now();
                 const stableMs = performance.now() - stableSinceRef.current;
@@ -208,13 +253,7 @@ export function useFaceCapture({ onCaptured, onError }) {
                   const ear = (leftEar + rightEar) / 2;
                   if (ear < 0.19) blinkSeenRef.current = true;
                   if (blinkSeenRef.current && ear > 0.24) {
-                    capturedRef.current = true;
-                    setStatus("capturing");
-                    setProgress(100);
-                    setHint("กำลังบันทึกใบหน้า...");
-                    const imageBase64 = captureFrame(video);
-                    stopCamera();
-                    onCaptured?.(imageBase64);
+                    captureNow();
                     return;
                   }
                   setProgress(Math.max(60, Math.min(95, 60 + Math.floor((0.24 - ear) * 200))));
@@ -250,7 +289,7 @@ export function useFaceCapture({ onCaptured, onError }) {
       detectorRef.current = null;
       landmarkerRef.current = null;
     };
-  }, [attempt, onCaptured, onError, stopCamera]);
+  }, [attempt, captureNow, holdMs, onError, requireBlink, stopCamera]);
 
-  return { videoRef, status, hint, progress, retry, stopCamera };
+  return { videoRef, status, hint, progress, retry, stopCamera, captureNow };
 }

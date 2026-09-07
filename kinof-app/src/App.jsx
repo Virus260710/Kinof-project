@@ -12,8 +12,9 @@ import {
   LifeBuoy,
   Database,
   ScrollText,
+  KeyRound,
 } from "lucide-react";
-import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 import Sidebar from "./components/Sidebar";
 import TopBar from "./components/TopBar";
@@ -32,6 +33,8 @@ import BookRoom from "./pages/user/BookRoom";
 import Invitation from "./pages/user/Invitation";
 import UserProfile from "./pages/user/UserProfile";
 import UserHelp from "./pages/user/UserHelp";
+import EntryOtp from "./pages/user/EntryOtp";
+import KioskEntry from "./pages/kiosk/KioskEntry";
 
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminTracking from "./pages/admin/AdminTracking";
@@ -52,6 +55,7 @@ const USER_NAV = [
   { key: "home", label: "หน้าหลัก", icon: Home },
   { key: "book", label: "จองห้องแล็บ", icon: Calendar },
   { key: "invite", label: "คำเชิญ", icon: Mail },
+  { key: "entry-otp", label: "รหัสเข้าห้อง", icon: KeyRound },
   { key: "profile", label: "โปรไฟล์", icon: User },
   { key: "help", label: "ช่วยเหลือ", icon: HelpCircle },
 ];
@@ -75,6 +79,7 @@ function readStoredJson(storage, key) {
 
 export default function App() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [auth, setAuth] = useState(() => readStoredAuth());
   const [bootstrapping, setBootstrapping] = useState(() => Boolean(readStoredAuth()));
   const [pendingLogin, setPendingLogin] = useState(() => readStoredJson(sessionStorage, "kinofPendingLogin"));
@@ -110,7 +115,13 @@ export default function App() {
         const nextAuth = { ...currentAuth, user };
         storeAuth(nextAuth);
         setAuth(nextAuth);
-        setPage(isStaffAdmin(user.userType) ? "dashboard" : "home");
+        if (isStaffAdmin(user.userType)) {
+          setPage("dashboard");
+        } else if (window.location.pathname === "/entry-otp") {
+          setPage("entry-otp");
+        } else {
+          setPage("home");
+        }
       })
       .catch(() => {
         if (!active) return;
@@ -133,6 +144,11 @@ export default function App() {
       .then((rows) => setMyBookings(rows.map(mapBookingRow)))
       .catch(() => {});
   }, [auth?.accessToken, bootstrapping, role]);
+
+  useEffect(() => {
+    if (bootstrapping || !auth?.accessToken || role !== "user") return;
+    if (location.pathname === "/entry-otp") setPage("entry-otp");
+  }, [auth?.accessToken, bootstrapping, location.pathname, role]);
 
   useEffect(() => {
     if (bootstrapping || !auth?.accessToken) return;
@@ -182,6 +198,9 @@ export default function App() {
   const handleSetPage = (nextPage) => {
     if (nextPage === "tracking") setTrackingNav(null);
     setPage(nextPage);
+    if (role !== "user") return;
+    if (nextPage === "entry-otp") navigate("/entry-otp");
+    else if (location.pathname === "/entry-otp") navigate("/");
   };
 
   const openTrackingRoom = (roomId) => {
@@ -194,13 +213,15 @@ export default function App() {
     setPage("tracking");
   };
 
+  const visiblePage = role === "user" && location.pathname === "/entry-otp" ? "entry-otp" : page;
+
   const appShell = (
     <div className="flex min-h-screen w-full" style={{ background: BG_APP }}>
       <Sidebar
         items={role === "admin"
           ? [...ADMIN_NAV, ...(isSuperAdmin(auth?.user?.userType) ? [{ key: "audit", label: "Log แอดมิน", icon: ScrollText }] : [])]
           : USER_NAV}
-        page={page}
+        page={visiblePage}
         setPage={handleSetPage}
         roleLabel={role === "admin" ? "ระบบดูแลและจองห้องแล็บ" : "ระบบจองห้องแล็บ"}
         onLogout={handleLogout}
@@ -211,10 +232,10 @@ export default function App() {
       <div className="flex-1 p-4 md:p-8 w-full min-w-0">
         <TopBar name={getDisplayName(auth?.user)} onMenuClick={() => setSidebarOpen(true)} />
 
-        {role === "user" && page === "home" && (
-          <UserHome setPage={setPage} myBookings={myBookings} auth={auth} />
+        {role === "user" && visiblePage === "home" && (
+          <UserHome setPage={handleSetPage} myBookings={myBookings} auth={auth} />
         )}
-        {role === "user" && page === "book" && (
+        {role === "user" && visiblePage === "book" && (
           <BookRoom
             existingBookings={myBookings}
             onBookingCreated={(booking) => (
@@ -225,7 +246,7 @@ export default function App() {
             setPage={setPage}
           />
         )}
-        {role === "user" && page === "invite" && (
+        {role === "user" && visiblePage === "invite" && (
           <Invitation
             notify={notify}
             onInvitationAccepted={(booking) => (
@@ -233,8 +254,11 @@ export default function App() {
             )}
           />
         )}
-        {role === "user" && page === "profile" && <UserProfile auth={auth} />}
-        {role === "user" && page === "help" && (
+        {role === "user" && visiblePage === "entry-otp" && (
+          <EntryOtp myBookings={myBookings} notify={notify} />
+        )}
+        {role === "user" && visiblePage === "profile" && <UserProfile auth={auth} setPage={handleSetPage} />}
+        {role === "user" && visiblePage === "help" && (
           <UserHelp
             problemReports={problemReports}
             onSubmitted={(report) => setProblemReports((current) => [report, ...current])}
@@ -282,8 +306,11 @@ export default function App() {
   );
 
   const needsFaceEnroll = auth && !auth.user?.faceEnrolled && !isStaffAdmin(auth.user?.userType);
+  // The Kiosk screen belongs to the lab door, not to a signed-in user, so it must render
+  // without waiting for (or depending on) the session bootstrap.
+  const isKiosk = location.pathname.startsWith("/kiosk/");
 
-  if (bootstrapping) {
+  if (bootstrapping && !isKiosk) {
     return (
       <div className="min-h-screen flex items-center justify-center text-sm text-gray-500" style={{ background: BG_APP }}>
         กำลังตรวจสอบเซสชัน...
@@ -293,6 +320,7 @@ export default function App() {
 
   return (
     <Routes>
+      <Route path="/kiosk/:roomId" element={<KioskEntry />} />
       <Route
         path="/login"
         element={auth ? <Navigate to="/" replace /> : <Login onOtpRequired={handleOtpRequired} />}
@@ -338,6 +366,22 @@ export default function App() {
       <Route
         path="/register/face/success"
         element={auth ? <FaceEnrollSuccess /> : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/entry-otp"
+        element={
+          auth ? (
+            needsFaceEnroll ? (
+              <Navigate to="/register/face" replace />
+            ) : role === "admin" ? (
+              <Navigate to="/" replace />
+            ) : (
+              appShell
+            )
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
       />
       <Route
         path="*"

@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from "react";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
-import { User, Mail, Hash, BookOpen, AlertCircle, Award } from "lucide-react";
+import Button from "../../components/Button";
+import { User, Mail, Hash, BookOpen, AlertCircle, Award, KeyRound, ArrowRight } from "lucide-react";
 import { penaltyHistory } from "../../data/mockData";
 import { getMySchedule, toProfileScheduleRows } from "../../api/schedules";
 
 // TODO(backend): replace score and penalty history when profile-stat endpoints are available.
-export default function UserProfile({ auth, userScore = 95 }) {
+export default function UserProfile({ auth, userScore = 95, setPage }) {
   const user = auth?.user;
   const [scheduleRows, setScheduleRows] = useState([]);
   const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "ผู้ใช้งาน";
@@ -29,6 +30,23 @@ export default function UserProfile({ auth, userScore = 95 }) {
         <h1 className="text-xl md:text-2xl font-bold text-ink tracking-tight">โปรไฟล์ผู้ใช้งาน</h1>
         <p className="text-caption mt-0.5">ข้อมูลส่วนตัว คะแนนพฤติกรรม และตารางเรียน</p>
       </div>
+
+      <Card className="p-5 md:p-6 mb-7 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-navy-50 text-navy-800 flex items-center justify-center shrink-0">
+            <KeyRound size={18} />
+          </div>
+          <div>
+            <div className="text-xs font-semibold text-muted uppercase tracking-wider mb-1">รหัสเข้าห้องสำรอง</div>
+            <p className="text-sm text-slate-700">ขอ OTP ทางอีเมล ใช้เมื่อสแกนหน้าไม่สำเร็จที่ Kiosk</p>
+          </div>
+        </div>
+        {typeof setPage === "function" && (
+          <Button variant="secondary" icon={ArrowRight} onClick={() => setPage("entry-otp")}>
+            ขอรหัสเข้าห้อง
+          </Button>
+        )}
+      </Card>
 
       {/* Grid Profile & Stats */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-7">

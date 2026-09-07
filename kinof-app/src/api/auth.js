@@ -114,4 +114,22 @@ export function registerFace(imageBase64) {
   });
 }
 
+export function requestEntryOtp(roomId) {
+  return apiFetch("/api/auth/entry-otp/request", {
+    method: "POST",
+    body: JSON.stringify({ roomId: roomId || null }),
+  });
+}
+
+export function resendEntryOtp(roomId) {
+  return apiFetch("/api/auth/entry-otp/resend", {
+    method: "POST",
+    body: JSON.stringify({ roomId: roomId || null }),
+  });
+}
+
+export function getActiveEntryOtp() {
+  return apiFetch("/api/auth/entry-otp/active");
+}
+
 export { readStoredAuth, storeAuth };

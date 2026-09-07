@@ -27,6 +27,11 @@ builder.Services.AddHttpClient<IFaceEmbeddingClient, FaceEmbeddingClient>((servi
     client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
 });
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<EntryOtpService>();
+builder.Services.AddScoped<EntryService>();
+builder.Services.AddScoped<FaceMatchingService>();
+builder.Services.AddScoped<KioskService>();
+builder.Services.AddSingleton<KioskAttemptLimiter>();
 builder.Services.AddScoped<BookingService>();
 builder.Services.AddScoped<InvitationService>();
 builder.Services.AddScoped<ProblemReportService>();
@@ -200,6 +205,38 @@ auth.MapPost("/register/face", (
         ? Task.FromResult(Results.Unauthorized())
         : service.RegisterFaceAsync(userId.Value, request, cancellationToken);
 }).RequireAuthorization();
+auth.MapPost("/entry-otp/request", (
+    EntryOtpRequestBody? request,
+    ClaimsPrincipal user,
+    EntryOtpService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.RequestAsync(userId.Value, request?.RoomId, cancellationToken);
+}).RequireAuthorization();
+auth.MapPost("/entry-otp/resend", (
+    EntryOtpRequestBody? request,
+    ClaimsPrincipal user,
+    EntryOtpService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.ResendAsync(userId.Value, request?.RoomId, cancellationToken);
+}).RequireAuthorization();
+auth.MapGet("/entry-otp/active", (
+    ClaimsPrincipal user,
+    EntryOtpService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.GetActiveAsync(userId.Value, cancellationToken);
+}).RequireAuthorization();
 
 var bookings = app.MapGroup("/api/bookings").RequireAuthorization();
 bookings.MapGet("/me", (
@@ -283,6 +320,7 @@ rooms.MapGet("/available", (
     service.GetAvailableRoomsAsync(startTime, endTime, cancellationToken));
 
 app.MapAdminAndScheduleEndpoints();
+app.MapKioskEndpoints();
 app.MapAgentEndpoints();
 app.MapTrackingEndpoints();
 

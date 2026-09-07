@@ -42,6 +42,41 @@ POST /api/auth/resend-email-otp
 
 ---
 
+## Flow Entry OTP (สำรองเข้าห้อง)
+
+```
+1. Login เว็บด้วย JWT แล้ว
+2. ไป /entry-otp → เลือกห้อง (optional) → กด "ขอรหัสเข้าห้อง"
+3. Backend สร้าง OTP 6 หลัก, hash, หมดอายุ 10 นาที, ส่ง email
+4. หน้าเว็บแสดง maskedEmail + countdown — ไม่แสดงรหัสจริง
+5. ถ้า Kiosk สแกนหน้าไม่ผ่าน → กรอก OTP ที่เครื่อง (Phase 3B)
+```
+
+---
+
+## API — Entry OTP (Phase 3A)
+
+```
+POST /api/auth/entry-otp/request   [JWT]
+  Request:  { roomId: "guid"|null }
+  Response: { ok, maskedEmail, expiresAt, roomId?, roomName?, deliveryMode }
+
+POST /api/auth/entry-otp/resend    [JWT]
+  Request:  { roomId: "guid"|null }
+  Response: เหมือน request
+  Rate limit: รวม request+resend ไม่เกิน 3 ครั้ง/ชม. ต่อ user
+
+GET  /api/auth/entry-otp/active    [JWT]
+  Response: { hasActive, expiresAt?, roomId?, roomName?, maskedEmail? }
+  ไม่ส่ง code จริง
+```
+
+- ต้อง user Active; ถ้ามี roomId ห้องต้องมีจริงและ Open
+- OTP เก่าที่ยังไม่ used ของ user ถูก invalidate เมื่อขอใหม่
+- Dev ไม่มี SMTP → log OTP ใน console backend
+
+---
+
 ## ส่ง Email (Backend)
 
 **.NET:** MailKit + SMTP  

@@ -1,5 +1,5 @@
 import React from "react";
-import { Calendar, Clock, Plus, ArrowRight, CheckCircle2, History, Sparkles } from "lucide-react";
+import { Calendar, Clock, Plus, ArrowRight, CheckCircle2, History, Sparkles, KeyRound } from "lucide-react";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import Button from "../../components/Button";
@@ -41,6 +41,28 @@ export default function UserHome({ setPage, myBookings = [], auth }) {
         <div className="absolute -right-10 -bottom-10 w-48 h-48 rounded-full bg-white/10 blur-3xl pointer-events-none" />
         <div className="absolute right-24 top-0 w-24 h-24 rounded-full blur-3xl pointer-events-none" style={{ background: `${TEAL}30` }} />
       </div>
+
+      <Card
+        className="p-5 md:p-6 mb-7 flex flex-col md:flex-row md:items-center md:justify-between gap-4 hover:border-slate-300 transition-all duration-200"
+        hoverable
+        onClick={() => setPage("entry-otp")}
+      >
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-navy-50 text-navy-800 flex items-center justify-center shrink-0">
+            <KeyRound size={18} />
+          </div>
+          <div>
+            <div className="text-xs font-semibold text-muted uppercase tracking-wider mb-1">รหัสเข้าห้องสำรอง</div>
+            <h3 className="font-bold text-ink text-base">ขอ OTP ทางอีเมลก่อนไปแล็บ</h3>
+            <p className="text-xs text-muted mt-1 leading-relaxed">
+              ใช้เมื่อสแกนหน้าไม่สำเร็จที่ Kiosk เท่านั้น — รหัสใช้ได้ 10 นาที ครั้งเดียว
+            </p>
+          </div>
+        </div>
+        <Button variant="secondary" icon={ArrowRight} onClick={(event) => { event.stopPropagation(); setPage("entry-otp"); }}>
+          ขอรหัสเข้าห้อง
+        </Button>
+      </Card>
 
       {/* Grid Quick Info Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-7">

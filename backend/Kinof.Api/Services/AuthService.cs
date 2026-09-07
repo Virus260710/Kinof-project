@@ -335,7 +335,7 @@ public sealed class AuthService(
         RegisterFaceRequest request,
         CancellationToken cancellationToken)
     {
-        if (!TryDecodeImage(
+        if (!FaceImage.TryDecode(
                 request.ImageBase64,
                 out var image,
                 out var contentType,
@@ -389,56 +389,6 @@ public sealed class AuthService(
         await db.SaveChangesAsync(cancellationToken);
 
         return Results.Ok(new { ok = true, faceEnrolled = true, user = ToResponse(user) });
-    }
-
-    private static bool TryDecodeImage(
-        string? imageBase64,
-        out byte[] image,
-        out string contentType,
-        out string validationMessage)
-    {
-        image = [];
-        contentType = "";
-        validationMessage = "";
-
-        if (string.IsNullOrWhiteSpace(imageBase64) || imageBase64.Length > 7_000_000)
-        {
-            validationMessage = "ภาพใบหน้าไม่ถูกต้องหรือมีขนาดใหญ่เกิน 5 MB";
-            return false;
-        }
-
-        var supportedPrefixes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["data:image/jpeg;base64,"] = "image/jpeg",
-            ["data:image/png;base64,"] = "image/png",
-            ["data:image/webp;base64,"] = "image/webp"
-        };
-        var prefix = supportedPrefixes.Keys.FirstOrDefault(
-            candidate => imageBase64.StartsWith(candidate, StringComparison.OrdinalIgnoreCase));
-        if (prefix is null)
-        {
-            validationMessage = "รองรับเฉพาะภาพ JPEG, PNG หรือ WebP";
-            return false;
-        }
-
-        try
-        {
-            image = Convert.FromBase64String(imageBase64[prefix.Length..]);
-        }
-        catch (FormatException)
-        {
-            validationMessage = "ข้อมูลภาพใบหน้าไม่ถูกต้อง";
-            return false;
-        }
-
-        if (image.Length is < 1_024 or > 5 * 1_024 * 1_024)
-        {
-            validationMessage = "ภาพใบหน้าไม่ถูกต้องหรือมีขนาดใหญ่เกิน 5 MB";
-            return false;
-        }
-
-        contentType = supportedPrefixes[prefix];
-        return true;
     }
 
     public async Task<IResult> ResendOtpAsync(

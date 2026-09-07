@@ -32,6 +32,12 @@ public interface IEmailSender
         string firstName,
         string inviteLink,
         CancellationToken cancellationToken);
+    Task<EmailDeliveryResult> SendEntryOtpAsync(
+        string email,
+        string firstName,
+        string code,
+        string? roomName,
+        CancellationToken cancellationToken);
 }
 
 public sealed record EmailDeliveryResult(bool Delivered, string Mode);
@@ -177,6 +183,58 @@ public sealed class EmailSender(
         return await SendSmtpOrDevConsoleFallbackAsync(
             message,
             $"Development email fallback (SMTP send failed): admin invite link for {email} is {inviteLink} (valid 48 hours)",
+            cancellationToken);
+    }
+
+    public async Task<EmailDeliveryResult> SendEntryOtpAsync(
+        string email,
+        string firstName,
+        string code,
+        string? roomName,
+        CancellationToken cancellationToken)
+    {
+        var roomLine = string.IsNullOrWhiteSpace(roomName)
+            ? ""
+            : $"ห้อง: {roomName}{Environment.NewLine}";
+        var smtpConfigured =
+            !string.IsNullOrWhiteSpace(_options.SmtpHost) &&
+            !string.IsNullOrWhiteSpace(_options.Username) &&
+            !string.IsNullOrWhiteSpace(_options.Password);
+        if (!smtpConfigured)
+        {
+            if (!environment.IsDevelopment())
+                throw new InvalidOperationException("Email SMTP credentials must be configured outside Development.");
+
+            logger.LogWarning(
+                "Development email fallback: entry OTP for {Email} is {OtpCode} (valid 10 minutes{RoomSuffix})",
+                email,
+                code,
+                string.IsNullOrWhiteSpace(roomName) ? "" : $", room: {roomName}");
+            return new EmailDeliveryResult(false, "console");
+        }
+
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress(_options.FromName, _options.FromAddress));
+        message.To.Add(MailboxAddress.Parse(email));
+        message.Subject = "รหัสเข้าห้องแล็บ KINOF (สำรอง)";
+        message.Body = new TextPart("plain")
+        {
+            Text = $"""
+                    สวัสดี {firstName},
+
+                    รหัสเข้าห้องแล็บของคุณคือ: {code}
+                    ใช้ได้ 10 นาที ครั้งเดียว ห้ามแชร์ให้ผู้อื่น
+
+                    ใช้เมื่อสแกนหน้าไม่สำเร็จที่ Kiosk เท่านั้น
+                    {roomLine}
+                    — KINOF ระบบจองห้องแล็บ
+                    """
+        };
+
+        var roomLog = string.IsNullOrWhiteSpace(roomName) ? "" : $", room: {roomName}";
+        return await SendSmtpOrDevConsoleFallbackAsync(
+            message,
+            $"Development email fallback (SMTP send failed): entry OTP for {email} is {code} (valid 10 minutes{roomLog})",
             cancellationToken);
     }
 
