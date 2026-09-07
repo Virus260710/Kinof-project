@@ -24,6 +24,7 @@ public static class DbSeeder
                 existingStudent.UpdatedAt = DateTime.UtcNow;
                 await db.SaveChangesAsync();
             }
+            await SeedDevAgentsAsync(db);
             return;
         }
 
@@ -94,6 +95,44 @@ public static class DbSeeder
             new WebsiteBlacklist { UrlPattern = "twitter.com", Category = "social" });
 
         await db.SaveChangesAsync();
+        await SeedDevAgentsAsync(db);
+    }
+
+    /// <summary>
+    /// Gives the first two seats of the first lab a predictable agent key so
+    /// <c>scripts/simulate-agent.ps1</c> can run without provisioning through the admin UI.
+    /// Development only — production agents are created via POST /api/admin/agents.
+    /// </summary>
+    private static async Task SeedDevAgentsAsync(AppDbContext db)
+    {
+        var room = await db.Rooms.OrderBy(x => x.Name).FirstOrDefaultAsync();
+        if (room is null)
+            return;
+
+        var seats = await db.Seats
+            .Where(seat => seat.RoomId == room.Id)
+            .OrderBy(seat => seat.SeatNumber)
+            .Take(2)
+            .ToListAsync();
+
+        var added = false;
+        for (var index = 0; index < seats.Count; index++)
+        {
+            var seat = seats[index];
+            if (await db.Agents.AnyAsync(agent => agent.SeatId == seat.Id))
+                continue;
+
+            db.Agents.Add(new Agent
+            {
+                SeatId = seat.Id,
+                ApiKey = $"dev-agent-key-{index + 1}",
+                Hostname = seat.ComputerName
+            });
+            added = true;
+        }
+
+        if (added)
+            await db.SaveChangesAsync();
     }
 
     private static async Task SeedSuperAdminsAsync(

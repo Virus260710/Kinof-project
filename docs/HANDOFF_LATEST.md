@@ -155,11 +155,18 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
 
 | ลำดับ | งาน |
 |-------|-----|
-| 1 | Entry OTP สำหรับ Kiosk (`/api/auth/entry-otp`) |
-| 2 | ติดตั้ง Python 3.10/3.11 และทดสอบ InsightFace ด้วยกล้องจริงบนเครื่อง |
-| 3 | Admin Monitor/Export และ dashboard metrics เชื่อม API |
-| 4 | Kiosk ตรวจตารางเรียน + partial booking หลังเลิกเรียน |
-| 5 | git commit/push branch ขึ้น GitHub เมื่อผู้ใช้สั่ง |
+| 1 | Admin Dashboard/Monitor/Tracking metrics เชื่อม API (เลิก trackingMock) |
+| 2 | Tracking backend API (`/api/agent/*`, `/api/admin/tracking/*`) |
+| 3 | Entry OTP + Kiosk (`/api/auth/entry-otp`) |
+| 4 | Face enrollment E2E กล้องจริง + InsightFace |
+| 5 | Admin Export API |
+| 6 | Tracking Agent Windows (หลัง API พร้อม) |
+| 7 | ระบบหักคะแนนพฤติกรรม (หลัง Agent + no-show) |
+
+### ตัดสินใจแล้ว — MVP booking
+
+- **Schedule ชนจองแม้ส่วนเดียว → block ทั้งรอบ** (backend + frontend ทำแล้ว)
+- **Partial booking หลังเลิกเรียน — ไม่ทำใน MVP** (เลื่อนออก / post-MVP)
 
 ---
 
@@ -168,6 +175,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
 - OTP ทาง **email เท่านั้น** — ไม่ใช้ Google Authenticator
 - External users สมัครแล้ว **active ทันที**
 - **อย่า copy Tracking Agent** จาก smartlab repo
+- **Booking vs schedule: block ทั้งรอบ** — ไม่ partial ใน MVP
 - Kiosk flow (Phase 2): face ผ่าน → เข้าได้; ไม่ผ่าน → entry OTP
 
 ---

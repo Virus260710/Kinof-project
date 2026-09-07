@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -8,6 +8,7 @@ import {
   Monitor,
   Power,
   Radar,
+  RefreshCw,
   Save,
   UserRound,
   Wifi,
@@ -18,12 +19,15 @@ import Button from "../../components/Button";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import {
-  trackingActivity,
-  trackingRooms,
-  trackingSeats,
-  trackingSessions,
-} from "../../data/trackingMock";
-import { getDisplayName } from "../../utils/displayName";
+  bulkRoomAction,
+  forceSeatLogout,
+  getSeatActivity,
+  getTrackingRooms,
+  getTrackingSeats,
+  updateRoomStatus,
+} from "../../api/tracking";
+
+const POLL_INTERVAL_MS = 25000;
 
 const ROOM_META = {
   open: { label: "เปิดใช้งาน", tone: "green", border: "border-emerald-300", surface: "bg-emerald-50" },
@@ -38,6 +42,8 @@ const SEAT_META = {
   maintenance: { label: "ซ่อมบำรุง", tone: "amber", dot: "bg-amber-500", border: "border-amber-300", surface: "bg-amber-50" },
 };
 
+const FALLBACK_META = { label: "ไม่ทราบสถานะ", tone: "gray", dot: "bg-slate-400", border: "border-slate-200", surface: "bg-slate-50" };
+
 const BULK_ACTIONS = {
   open: {
     title: "เปิดใช้งานทั้งห้อง",
@@ -47,7 +53,7 @@ const BULK_ACTIONS = {
   },
   close: {
     title: "ระงับและออกจากระบบทั้งหมด",
-    description: "ระงับการเข้าใช้งานใหม่และจำลองการออกจากระบบของผู้ใช้ทุกเครื่องทันที",
+    description: "ระงับการเข้าใช้งานใหม่และสั่งออกจากระบบของผู้ใช้ทุกเครื่องทันที",
     confirmLabel: "ยืนยันระงับทั้งห้อง",
     variant: "danger",
   },
@@ -63,7 +69,15 @@ const formatDateTime = (value) => value
   ? new Date(value).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })
   : "-";
 
-const displayName = (user) => user?.displayName || getDisplayName(user);
+const formatDuration = (startedAt) => {
+  if (!startedAt) return "-";
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(startedAt).getTime()) / 60000));
+  if (minutes < 60) return `${minutes} นาที`;
+  return `${Math.floor(minutes / 60)} ชม. ${minutes % 60} นาที`;
+};
+
+const seatMetaOf = (status) => SEAT_META[status] ?? FALLBACK_META;
+const roomMetaOf = (status) => ROOM_META[status] ?? FALLBACK_META;
 
 export default function AdminTracking({
   notify,
@@ -71,44 +85,85 @@ export default function AdminTracking({
   initialSeatId,
   onOpenMonitor,
 }) {
-  const initialSeat = trackingSeats.find((seat) => seat.id === initialSeatId);
   const [view, setView] = useState(initialSeatId ? "seat" : initialRoomId ? "room" : "rooms");
-  const [selectedRoomId, setSelectedRoomId] = useState(initialRoomId || initialSeat?.roomId || null);
-  const [selectedSeatId, setSelectedSeatId] = useState(initialSeatId || null);
-  const [roomStatusDrafts, setRoomStatusDrafts] = useState(
-    Object.fromEntries(trackingRooms.map((room) => [room.id, room.status])),
-  );
-  const [seatStatusDrafts, setSeatStatusDrafts] = useState(
-    Object.fromEntries(trackingSeats.map((seat) => [seat.id, seat.status])),
-  );
-  const [terminatedSeatIds, setTerminatedSeatIds] = useState(() => new Set());
+  const [selectedRoomId, setSelectedRoomId] = useState(initialRoomId ?? null);
+  const [selectedSeatId, setSelectedSeatId] = useState(initialSeatId ?? null);
+
+  const [rooms, setRooms] = useState([]);
+  const [seats, setSeats] = useState([]);
+  const [seatActivity, setSeatActivity] = useState([]);
+  const [roomStatusDraft, setRoomStatusDraft] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const [bulkAction, setBulkAction] = useState(null);
 
+  // Keeps polling from flipping the page back into a loading skeleton.
+  const loadedOnceRef = useRef(false);
+
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
+    try {
+      const nextRooms = await getTrackingRooms();
+      setRooms(nextRooms);
+
+      if (selectedRoomId) {
+        setSeats(await getTrackingSeats(selectedRoomId));
+      } else {
+        setSeats([]);
+      }
+      if (selectedSeatId) {
+        setSeatActivity(await getSeatActivity(selectedSeatId));
+      } else {
+        setSeatActivity([]);
+      }
+      setError("");
+      loadedOnceRef.current = true;
+    } catch (loadError) {
+      if (!silent || !loadedOnceRef.current) setError(loadError.message);
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, [selectedRoomId, selectedSeatId]);
+
   useEffect(() => {
-    const targetSeat = trackingSeats.find((seat) => seat.id === initialSeatId);
-    if (targetSeat) {
-      setSelectedRoomId(targetSeat.roomId);
-      setSelectedSeatId(targetSeat.id);
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    const timer = setInterval(() => load({ silent: true }), POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [load]);
+
+  useEffect(() => {
+    if (initialSeatId) {
+      setSelectedRoomId(initialRoomId ?? null);
+      setSelectedSeatId(initialSeatId);
       setView("seat");
-    } else if (trackingRooms.some((room) => room.id === initialRoomId)) {
+    } else if (initialRoomId) {
       setSelectedRoomId(initialRoomId);
       setSelectedSeatId(null);
       setView("room");
+    } else {
+      // Sidebar "Tracking" clears the cross-nav target and returns to the room list.
+      setSelectedRoomId(null);
+      setSelectedSeatId(null);
+      setView("rooms");
     }
   }, [initialRoomId, initialSeatId]);
 
-  const room = trackingRooms.find((item) => item.id === selectedRoomId);
-  const seat = trackingSeats.find((item) => item.id === selectedSeatId);
-  const roomSeats = trackingSeats.filter((item) => item.roomId === selectedRoomId);
-  const session = trackingSessions.find(
-    (item) => item.seatId === selectedSeatId && !terminatedSeatIds.has(item.seatId),
-  );
-  const seatActivity = trackingActivity.filter((item) => item.seatId === selectedSeatId);
+  const room = rooms.find((item) => item.id === selectedRoomId);
+  const seat = seats.find((item) => item.id === selectedSeatId);
+  const session = seat?.session ?? null;
+
+  useEffect(() => {
+    if (room) setRoomStatusDraft(room.status);
+  }, [room?.id, room?.status]);
 
   const roomCounts = useMemo(() => Object.keys(SEAT_META).reduce((counts, status) => ({
     ...counts,
-    [status]: roomSeats.filter((item) => seatStatusDrafts[item.id] === status).length,
-  }), {}), [roomSeats, seatStatusDrafts]);
+    [status]: seats.filter((item) => item.status === status).length,
+  }), {}), [seats]);
 
   const openRoom = (roomId) => {
     setSelectedRoomId(roomId);
@@ -121,57 +176,70 @@ export default function AdminTracking({
     setView("seat");
   };
 
-  const saveRoom = () => notify?.(`บันทึกสถานะ ${room.name} แล้ว (ข้อมูลจำลอง)`);
-  const saveSeat = () => notify?.(`บันทึกข้อมูล ${seat.label} แล้ว (ข้อมูลจำลอง)`);
+  const runAction = async (action, successMessage) => {
+    setBusy(true);
+    try {
+      await action();
+      await load({ silent: true });
+      notify?.(successMessage);
+    } catch (actionError) {
+      notify?.(actionError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveRoom = () => room && runAction(
+    () => updateRoomStatus(room.id, roomStatusDraft),
+    `บันทึกสถานะ ${room.name} แล้ว`,
+  );
 
   const applyBulkAction = () => {
     if (!bulkAction || !room) return;
-    const targetStatus = bulkAction === "open"
-      ? "available"
-      : bulkAction === "close"
-        ? "offline"
-        : "maintenance";
-    const roomStatus = bulkAction === "open"
-      ? "open"
-      : bulkAction === "close"
-        ? "closed"
-        : "maintenance";
-
-    setRoomStatusDrafts((current) => ({ ...current, [room.id]: roomStatus }));
-    setSeatStatusDrafts((current) => ({
-      ...current,
-      ...Object.fromEntries(roomSeats.map((item) => [
-        item.id,
-        bulkAction === "open" && !item.agentOnline ? "offline" : targetStatus,
-      ])),
-    }));
-
-    if (bulkAction !== "open") {
-      setTerminatedSeatIds((current) => {
-        const next = new Set(current);
-        roomSeats.forEach((item) => next.add(item.id));
-        return next;
-      });
-    }
-
-    notify?.(
-      bulkAction === "close"
-        ? `ระงับ ${room.name} และออกจากระบบผู้ใช้ทั้งหมดแล้ว (ข้อมูลจำลอง)`
-        : `${BULK_ACTIONS[bulkAction].title}แล้ว (ข้อมูลจำลอง)`,
-    );
+    const action = bulkAction;
     setBulkAction(null);
+    runAction(
+      () => bulkRoomAction(room.id, action),
+      action === "close"
+        ? `ระงับ ${room.name} และสั่งออกจากระบบผู้ใช้ทั้งหมดแล้ว`
+        : `${BULK_ACTIONS[action].title}แล้ว`,
+    );
   };
 
-  if (view === "rooms") {
+  const logoutSeat = () => seat && runAction(
+    () => forceSeatLogout(seat.id),
+    `สั่งออกจากระบบ ${seat.label} แล้ว`,
+  );
+
+  if (loading) {
+    return (
+      <Page>
+        <Card className="p-8 text-center text-sm text-muted">กำลังโหลดข้อมูล Tracking...</Card>
+      </Page>
+    );
+  }
+
+  if (error) {
+    return (
+      <Page>
+        <Card className="p-8 text-center">
+          <p className="text-sm text-rose-700">{error}</p>
+          <Button variant="secondary" size="sm" className="mt-4" icon={RefreshCw} onClick={() => load()}>
+            ลองใหม่
+          </Button>
+        </Card>
+      </Page>
+    );
+  }
+
+  if (view === "rooms" || !room) {
     return (
       <Page>
         <PageTitle title="Tracking ห้องแล็บ" description="เลือกห้องเพื่อดูสถานะเครื่องและจัดการการใช้งานแบบเจาะลึก" />
         <Legend items={Object.entries(ROOM_META).map(([key, meta]) => ({ key, ...meta }))} />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {trackingRooms.map((item) => {
-            const meta = ROOM_META[roomStatusDrafts[item.id]];
-            const seats = trackingSeats.filter((machine) => machine.roomId === item.id);
-            const online = seats.filter((machine) => machine.agentOnline).length;
+          {rooms.map((item) => {
+            const meta = roomMetaOf(item.status);
             return (
               <Card
                 key={item.id}
@@ -190,8 +258,8 @@ export default function AdminTracking({
                   <Pill tone={meta.tone} withDot>{meta.label}</Pill>
                 </div>
                 <div className="grid grid-cols-2 gap-3 mt-6">
-                  <Metric label="Agent ออนไลน์" value={`${online}/${seats.length}`} icon={Wifi} />
-                  <Metric label="เครื่องว่าง" value={seats.filter((machine) => machine.status === "available").length} icon={Monitor} />
+                  <Metric label="Agent ออนไลน์" value={`${item.agentOnlineCount}/${item.seatCount}`} icon={Wifi} />
+                  <Metric label="เครื่องทั้งหมด" value={item.seatCount} icon={Monitor} />
                 </div>
                 <div className="mt-5 pt-4 border-t border-slate-100 text-xs font-semibold text-navy-800 flex items-center justify-between">
                   จัดการห้องและเครื่อง <Radar size={15} />
@@ -199,27 +267,30 @@ export default function AdminTracking({
               </Card>
             );
           })}
+          {rooms.length === 0 && (
+            <div className="md:col-span-2 py-10 text-center text-sm text-muted">ยังไม่มีข้อมูลห้องแล็บ</div>
+          )}
         </div>
       </Page>
     );
   }
 
-  if (view === "room" && room) {
+  if (view === "room") {
     return (
       <Page>
-        <BackButton onClick={() => setView("rooms")}>ห้องแล็บทั้งหมด</BackButton>
+        <BackButton onClick={() => { setSelectedRoomId(null); setView("rooms"); }}>ห้องแล็บทั้งหมด</BackButton>
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-5">
           <PageTitle title={room.name} description="จัดการสถานะห้องและเลือกเครื่องเพื่อดูรายละเอียด" compact />
           <div className="flex flex-wrap items-center gap-2">
             <select
-              value={roomStatusDrafts[room.id]}
-              onChange={(event) => setRoomStatusDrafts((current) => ({ ...current, [room.id]: event.target.value }))}
+              value={roomStatusDraft}
+              onChange={(event) => setRoomStatusDraft(event.target.value)}
               className="text-xs bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-slate-700"
               aria-label="สถานะห้อง"
             >
               {Object.entries(ROOM_META).map(([key, meta]) => <option key={key} value={key}>{meta.label}</option>)}
             </select>
-            <Button icon={Save} onClick={saveRoom}>บันทึกข้อมูล</Button>
+            <Button icon={Save} onClick={saveRoom} disabled={busy}>บันทึกข้อมูล</Button>
           </div>
         </div>
 
@@ -239,17 +310,17 @@ export default function AdminTracking({
             <div>
               <h2 className="text-sm font-bold text-ink">ควบคุมสถานะทั้งห้อง</h2>
               <p className="text-xs text-muted mt-1">
-                เปลี่ยนสถานะเครื่องทั้ง {roomSeats.length} เครื่องพร้อมกัน — ขณะนี้เป็นการจำลองใน UI
+                เปลี่ยนสถานะเครื่องทั้ง {seats.length} เครื่องพร้อมกัน
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="success" icon={Power} onClick={() => setBulkAction("open")}>
+              <Button size="sm" variant="success" icon={Power} disabled={busy} onClick={() => setBulkAction("open")}>
                 เปิดใช้งานทั้งหมด
               </Button>
-              <Button size="sm" variant="danger" icon={LogOut} onClick={() => setBulkAction("close")}>
+              <Button size="sm" variant="danger" icon={LogOut} disabled={busy} onClick={() => setBulkAction("close")}>
                 ระงับและออกจากระบบ
               </Button>
-              <Button size="sm" variant="secondary" icon={Wrench} onClick={() => setBulkAction("maintenance")}>
+              <Button size="sm" variant="secondary" icon={Wrench} disabled={busy} onClick={() => setBulkAction("maintenance")}>
                 ปรับปรุงทั้งหมด
               </Button>
             </div>
@@ -257,11 +328,8 @@ export default function AdminTracking({
         </Card>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-5 gap-3">
-          {roomSeats.map((item) => {
-            const meta = SEAT_META[seatStatusDrafts[item.id]];
-            const activeSession = trackingSessions.find(
-              (entry) => entry.seatId === item.id && !terminatedSeatIds.has(entry.seatId),
-            );
+          {seats.map((item) => {
+            const meta = seatMetaOf(item.status);
             return (
               <button
                 key={item.id}
@@ -274,20 +342,24 @@ export default function AdminTracking({
                 </div>
                 <div className="font-bold text-ink mt-3">{item.label}</div>
                 <div className="text-[11px] text-slate-600 mt-1">{meta.label}</div>
-                {activeSession && <div className="text-[10px] text-slate-500 truncate mt-2">{displayName(activeSession.user)}</div>}
+                {item.session && (
+                  <div className="text-[10px] text-slate-500 truncate mt-2">{item.session.user.displayName}</div>
+                )}
               </button>
             );
           })}
+          {seats.length === 0 && (
+            <div className="col-span-2 sm:col-span-4 xl:col-span-5 py-10 text-center text-sm text-muted">
+              ห้องนี้ยังไม่มีเครื่องคอมพิวเตอร์
+            </div>
+          )}
         </div>
         {bulkAction && (
           <BulkConfirm
             action={bulkAction}
             room={room}
-            machineCount={roomSeats.length}
-            activeSessionCount={trackingSessions.filter(
-              (item) => roomSeats.some((machine) => machine.id === item.seatId)
-                && !terminatedSeatIds.has(item.seatId),
-            ).length}
+            machineCount={seats.length}
+            activeSessionCount={seats.filter((item) => item.session).length}
             onCancel={() => setBulkAction(null)}
             onConfirm={applyBulkAction}
           />
@@ -296,12 +368,20 @@ export default function AdminTracking({
     );
   }
 
-  if (!seat || !room) return null;
-  const seatMeta = SEAT_META[seatStatusDrafts[seat.id]];
+  if (!seat) {
+    return (
+      <Page>
+        <BackButton onClick={() => { setSelectedSeatId(null); setView("room"); }}>{room.name}</BackButton>
+        <Card className="p-8 text-center text-sm text-muted">ไม่พบเครื่องที่เลือกในห้องนี้</Card>
+      </Page>
+    );
+  }
+
+  const seatMeta = seatMetaOf(seat.status);
 
   return (
     <Page>
-      <BackButton onClick={() => setView("room")}>{room.name}</BackButton>
+      <BackButton onClick={() => { setSelectedSeatId(null); setView("room"); }}>{room.name}</BackButton>
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-5">
         <PageTitle title={`${seat.label} · ${room.name}`} description="ข้อมูลผู้ใช้ เซสชัน กิจกรรม และการจัดการเครื่อง" compact />
         <Button
@@ -322,11 +402,11 @@ export default function AdminTracking({
             </div>
             {session ? (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <Info label="ชื่อผู้ใช้" value={displayName(session.user)} />
-                <Info label="รหัสผู้ใช้" value={session.user.username} />
-                <Info label="ประเภทผู้ใช้" value={session.user.userType} />
+                <Info label="ชื่อผู้ใช้" value={session.user.displayName} />
+                <Info label="รหัสผู้ใช้" value={session.user.username || "-"} />
+                <Info label="ประเภทผู้ใช้" value={session.user.userType || "-"} />
                 <Info label="เริ่มเซสชัน" value={formatDateTime(session.startedAt)} className="sm:col-span-2" />
-                <Info label="ระยะเวลา" value="24 นาที" />
+                <Info label="ระยะเวลา" value={formatDuration(session.startedAt)} />
               </div>
             ) : (
               <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-xs text-muted">
@@ -355,9 +435,9 @@ export default function AdminTracking({
                   {seatActivity.map((activity) => (
                     <tr key={activity.id}>
                       <td className="py-3 text-slate-600">{formatDateTime(activity.at)}</td>
-                      <td className="py-3 font-medium text-ink">{displayName(activity.user)}</td>
+                      <td className="py-3 font-medium text-ink">{activity.user?.displayName || "-"}</td>
                       <td className="py-3 text-slate-700">{activity.activity}</td>
-                      <td className="py-3 text-slate-600">{activity.durationMinutes || "-"} นาที</td>
+                      <td className="py-3 text-slate-600">{activity.durationMinutes ? `${activity.durationMinutes} นาที` : "-"}</td>
                       <td className="py-3"><Pill tone={activity.suspicious ? "red" : "gray"}>{activity.suspicious ? "น่าสงสัย" : "ปกติ"}</Pill></td>
                     </tr>
                   ))}
@@ -372,20 +452,31 @@ export default function AdminTracking({
 
         <Card className="p-5 md:p-6 h-fit">
           <h2 className="text-sm font-bold text-ink mb-1">จัดการคอมพิวเตอร์</h2>
-          <p className="text-xs text-muted mb-5">การเปลี่ยนแปลงนี้เป็นข้อมูลจำลองภายในหน้า</p>
-          <label className="text-xs font-medium text-slate-700">สถานะเครื่อง</label>
-          <select
-            value={seatStatusDrafts[seat.id]}
-            onChange={(event) => setSeatStatusDrafts((current) => ({ ...current, [seat.id]: event.target.value }))}
-            className="w-full mt-2 text-xs bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-slate-700"
-          >
-            {Object.entries(SEAT_META).map(([key, meta]) => <option key={key} value={key}>{meta.label}</option>)}
-          </select>
-          <div className="mt-4 rounded-xl bg-slate-50 border border-slate-100 p-3 flex items-center justify-between">
-            <span className="text-xs text-slate-600">Tracking Agent</span>
-            <Pill tone={seat.agentOnline ? "green" : "red"} withDot>{seat.agentOnline ? "ออนไลน์" : "ออฟไลน์"}</Pill>
+          <p className="text-xs text-muted mb-5">สถานะเครื่องมาจาก Agent และเซสชันปัจจุบันโดยอัตโนมัติ</p>
+          <div className="space-y-3">
+            <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 flex items-center justify-between">
+              <span className="text-xs text-slate-600">สถานะเครื่อง</span>
+              <Pill tone={seatMeta.tone} withDot>{seatMeta.label}</Pill>
+            </div>
+            <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 flex items-center justify-between">
+              <span className="text-xs text-slate-600">Tracking Agent</span>
+              <Pill tone={seat.agentOnline ? "green" : "red"} withDot>
+                {seat.agentOnline ? "ออนไลน์" : seat.agentRegistered ? "ออฟไลน์" : "ยังไม่ติดตั้ง"}
+              </Pill>
+            </div>
+            <Info label="ชื่อเครื่อง" value={seat.computerName || "-"} />
+            <Info label="Heartbeat ล่าสุด" value={formatDateTime(seat.lastHeartbeat)} />
           </div>
-          <Button fullWidth icon={Save} className="mt-5" onClick={saveSeat}>บันทึกข้อมูล</Button>
+          <Button
+            fullWidth
+            variant="danger"
+            icon={LogOut}
+            className="mt-5"
+            disabled={busy || !seat.agentRegistered}
+            onClick={logoutSeat}
+          >
+            สั่งออกจากระบบ
+          </Button>
         </Card>
       </div>
     </Page>
@@ -427,7 +518,7 @@ function BulkConfirm({
           <div className="rounded-xl bg-rose-50 border border-rose-100 px-3.5 py-3 text-xs text-rose-700 flex items-start gap-2 mb-5">
             <LogOut size={15} className="shrink-0 mt-0.5" />
             <span>
-              มีผู้ใช้กำลังเข้าสู่ระบบ {activeSessionCount} เครื่อง ระบบจะจำลองการจบเซสชันและออกจากระบบทั้งหมด
+              มีผู้ใช้กำลังเข้าสู่ระบบ {activeSessionCount} เครื่อง ระบบจะจบเซสชันและออกจากระบบทั้งหมด
             </span>
           </div>
         )}

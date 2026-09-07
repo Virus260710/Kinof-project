@@ -1,19 +1,20 @@
-import React, { useState } from "react";
-import { AlertTriangle, Ban, Globe2, Monitor, Users, X } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Ban, Globe2, Monitor, RefreshCw, Users, X } from "lucide-react";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import { NAVY } from "../../theme";
 import {
-  trackingActivity,
-  trackingFlagged,
-  trackingPrograms,
-  trackingRooms,
-  trackingSummary,
-  trackingWebsites,
-  websiteBlacklist,
-} from "../../data/trackingMock";
-import { getDisplayName } from "../../utils/displayName";
+  addWebsiteBlacklist,
+  bangkokDate,
+  getTrackingActivity,
+  getTrackingRooms,
+  getTrackingSummary,
+  getWebsiteBlacklist,
+  removeWebsiteBlacklist,
+} from "../../api/tracking";
+
+const POLL_INTERVAL_MS = 30000;
 
 const TABS = [
   { key: "session", label: "เข้า-ออก" },
@@ -28,44 +29,98 @@ const formatDateTime = (value) => new Date(value).toLocaleString("th-TH", {
   timeStyle: "short",
 });
 
-const displayName = (user) => user?.displayName || getDisplayName(user);
+const formatDateLabel = (isoDate) => new Date(`${isoDate}T00:00:00+07:00`).toLocaleDateString("th-TH", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
 
-export default function AdminMonitor({
-  blocked = [],
-  setBlocked,
-  notify,
-  onOpenTrackingSeat,
-}) {
+export default function AdminMonitor({ notify, onOpenTrackingSeat }) {
+  const today = useMemo(() => bangkokDate(), []);
+  const yesterday = useMemo(() => bangkokDate(-1), []);
+
   const [tab, setTab] = useState("session");
   const [roomFilter, setRoomFilter] = useState("all");
-  const [dateFilter, setDateFilter] = useState("2026-09-06");
+  const [dateFilter, setDateFilter] = useState(today);
   const [newSite, setNewSite] = useState("");
 
-  const sourceByTab = {
-    session: trackingActivity.filter((item) => ["login", "logout"].includes(item.activityType)),
-    program: trackingPrograms,
-    website: trackingWebsites,
-    flagged: trackingFlagged,
-  };
+  const [summary, setSummary] = useState(null);
+  const [rooms, setRooms] = useState([]);
+  const [rows, setRows] = useState([]);
+  const [blacklist, setBlacklist] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  const rows = (sourceByTab[tab] || []).filter((item) => {
-    const roomMatches = roomFilter === "all" || item.roomId === roomFilter;
-    const dateMatches = dateFilter === "all" || item.at.startsWith(dateFilter);
-    return roomMatches && dateMatches;
-  });
+  const loadedOnceRef = useRef(false);
 
-  const blacklist = [
-    ...websiteBlacklist.map((item) => item.domain),
-    ...blocked.filter((domain) => !websiteBlacklist.some((item) => item.domain === domain)),
-  ];
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
+    try {
+      const [nextSummary, nextRooms, nextBlacklist] = await Promise.all([
+        getTrackingSummary(),
+        getTrackingRooms(),
+        getWebsiteBlacklist(),
+      ]);
+      setSummary(nextSummary);
+      setRooms(nextRooms);
+      setBlacklist(nextBlacklist);
+      if (tab !== "blacklist") {
+        setRows(await getTrackingActivity({ roomId: roomFilter, date: dateFilter, type: tab }));
+      }
+      setError("");
+      loadedOnceRef.current = true;
+    } catch (loadError) {
+      if (!silent || !loadedOnceRef.current) setError(loadError.message);
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, [tab, roomFilter, dateFilter]);
 
-  const addToBlacklist = (domain, message) => {
-    if (!domain || blacklist.includes(domain)) {
-      if (domain) notify?.(`${domain} อยู่ใน Blacklist แล้ว`);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    const timer = setInterval(() => load({ silent: true }), POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [load]);
+
+  const blacklistDomains = useMemo(
+    () => new Set(blacklist.map((item) => item.domain)),
+    [blacklist],
+  );
+
+  const addToBlacklist = async (domain) => {
+    const value = domain?.trim().toLowerCase();
+    if (!value) return;
+    if (blacklistDomains.has(value)) {
+      notify?.(`${value} อยู่ใน Blacklist แล้ว`);
       return;
     }
-    setBlocked?.([...blocked, domain]);
-    notify?.(message || `เพิ่ม ${domain} ใน Blacklist แล้ว`);
+    setBusy(true);
+    try {
+      await addWebsiteBlacklist({ domain: value });
+      await load({ silent: true });
+      notify?.(`เพิ่ม ${value} ใน Blacklist แล้ว`);
+    } catch (addError) {
+      notify?.(addError.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeFromBlacklist = async (entry) => {
+    setBusy(true);
+    try {
+      await removeWebsiteBlacklist(entry.id);
+      await load({ silent: true });
+      notify?.(`นำ ${entry.domain} ออกจาก Blacklist แล้ว`);
+    } catch (removeError) {
+      notify?.(removeError.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -75,11 +130,20 @@ export default function AdminMonitor({
         <p className="text-xs text-muted mt-1">Audit กิจกรรมจากทุกห้องและทุกเครื่องในภาพรวม</p>
       </div>
 
+      {error && (
+        <Card className="p-6 mb-5 text-center">
+          <p className="text-sm text-rose-700">{error}</p>
+          <Button variant="secondary" size="sm" className="mt-4" icon={RefreshCw} onClick={() => load()}>
+            ลองใหม่
+          </Button>
+        </Card>
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-        <Summary icon={Users} label="ผู้ใช้งานปัจจุบัน" value={`${trackingSummary.activeUsers} คน`} tone="bg-navy-50 text-navy-800" />
-        <Summary icon={Monitor} label="เครื่องพร้อมใช้งาน" value={`${trackingSummary.machinesReady}/${trackingSummary.machinesTotal}`} tone="bg-teal-50 text-teal-500" />
-        <Summary icon={Globe2} label="เว็บไซต์วันนี้" value={`${trackingWebsites.length} รายการ`} tone="bg-blue-50 text-blue-600" />
-        <Summary icon={AlertTriangle} label="รายการน่าสงสัย" value={`${trackingFlagged.length} รายการ`} tone="bg-amber-50 text-amber-600" />
+        <Summary icon={Users} label="ผู้ใช้งานปัจจุบัน" value={summary ? `${summary.activeUsers} คน` : "-"} tone="bg-navy-50 text-navy-800" />
+        <Summary icon={Monitor} label="เครื่องพร้อมใช้งาน" value={summary ? `${summary.machinesReady}/${summary.machinesTotal}` : "-"} tone="bg-teal-50 text-teal-500" />
+        <Summary icon={Globe2} label="เว็บไซต์วันนี้" value={summary ? `${summary.websitesToday} รายการ` : "-"} tone="bg-blue-50 text-blue-600" />
+        <Summary icon={AlertTriangle} label="รายการน่าสงสัย" value={summary ? `${summary.flaggedCount} รายการ` : "-"} tone="bg-amber-50 text-amber-600" />
       </div>
 
       <Card variant="flat" className="p-4 mb-5">
@@ -92,7 +156,7 @@ export default function AdminMonitor({
               className="block w-full mt-1.5 bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-slate-700"
             >
               <option value="all">ทุกห้อง</option>
-              {trackingRooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
+              {rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
             </select>
           </label>
           <label className="flex-1 text-xs font-medium text-slate-600">
@@ -102,8 +166,8 @@ export default function AdminMonitor({
               onChange={(event) => setDateFilter(event.target.value)}
               className="block w-full mt-1.5 bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-slate-700"
             >
-              <option value="2026-09-06">วันนี้ (6 ก.ย. 2569)</option>
-              <option value="2026-09-05">เมื่อวาน (5 ก.ย. 2569)</option>
+              <option value={today}>วันนี้ ({formatDateLabel(today)})</option>
+              <option value={yesterday}>เมื่อวาน ({formatDateLabel(yesterday)})</option>
               <option value="all">ทุกวันที่มีข้อมูล</option>
             </select>
           </label>
@@ -127,20 +191,22 @@ export default function AdminMonitor({
 
       {tab === "blacklist" ? (
         <Blacklist
-          domains={blacklist}
-          blocked={blocked}
-          setBlocked={setBlocked}
+          entries={blacklist}
           newSite={newSite}
           setNewSite={setNewSite}
-          addToBlacklist={addToBlacklist}
-          notify={notify}
+          onAdd={addToBlacklist}
+          onRemove={removeFromBlacklist}
+          busy={busy}
         />
       ) : (
         <ActivityTable
           rows={rows}
           tab={tab}
+          loading={loading}
           onOpenTrackingSeat={onOpenTrackingSeat}
-          addToBlacklist={addToBlacklist}
+          onAddToBlacklist={addToBlacklist}
+          blacklistDomains={blacklistDomains}
+          busy={busy}
         />
       )}
     </div>
@@ -157,10 +223,10 @@ function Summary({ icon: Icon, label, value, tone }) {
   );
 }
 
-function ActivityTable({ rows, tab, onOpenTrackingSeat, addToBlacklist }) {
+function ActivityTable({ rows, tab, loading, onOpenTrackingSeat, onAddToBlacklist, blacklistDomains, busy }) {
   return (
     <Card className="p-5 md:p-6 overflow-hidden">
-      {tab === "flagged" && (
+      {tab === "flagged" && !loading && (
         <div className="flex items-center gap-2 mb-4 text-amber-700 text-xs bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5">
           <AlertTriangle size={14} /> พบกิจกรรมน่าสงสัย {rows.length} รายการตามตัวกรอง
         </div>
@@ -181,17 +247,18 @@ function ActivityTable({ rows, tab, onOpenTrackingSeat, addToBlacklist }) {
             {rows.map((row) => (
               <tr key={row.id} className="hover:bg-slate-50/70">
                 <td className="py-3.5 text-slate-600">{formatDateTime(row.at)}</td>
-                <td className="py-3.5 font-medium text-ink">{displayName(row.user)}</td>
+                <td className="py-3.5 font-medium text-ink">{row.user?.displayName || "-"}</td>
                 <td className="py-3.5 text-slate-600">{row.roomName}<br /><span className="text-slate-400">{row.seatLabel}</span></td>
                 <td className="py-3.5 text-slate-700 max-w-xs">{row.activity}</td>
                 <td className="py-3.5"><Pill tone={row.suspicious ? "red" : "green"}>{row.suspicious ? "น่าสงสัย" : "ปกติ"}</Pill></td>
                 <td className="py-3.5">
                   <div className="flex justify-end gap-2">
-                    {row.suspicious && (
+                    {row.website && !blacklistDomains.has(row.website) && (
                       <Button
                         size="sm"
                         variant="danger"
-                        onClick={() => addToBlacklist(row.website || "ufaflow2.com")}
+                        disabled={busy}
+                        onClick={() => onAddToBlacklist(row.website)}
                       >
                         เพิ่ม Blacklist
                       </Button>
@@ -208,7 +275,11 @@ function ActivityTable({ rows, tab, onOpenTrackingSeat, addToBlacklist }) {
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={6} className="py-12 text-center text-muted">ไม่พบข้อมูลตามตัวกรอง</td></tr>
+              <tr>
+                <td colSpan={6} className="py-12 text-center text-muted">
+                  {loading ? "กำลังโหลดข้อมูล..." : "ไม่พบข้อมูลตามตัวกรอง"}
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
@@ -217,16 +288,7 @@ function ActivityTable({ rows, tab, onOpenTrackingSeat, addToBlacklist }) {
   );
 }
 
-function Blacklist({ domains, blocked, setBlocked, newSite, setNewSite, addToBlacklist, notify }) {
-  const remove = (domain) => {
-    if (websiteBlacklist.some((item) => item.domain === domain)) {
-      notify?.("รายการตั้งต้นเป็นข้อมูลจำลอง จึงยังลบไม่ได้");
-      return;
-    }
-    setBlocked?.(blocked.filter((item) => item !== domain));
-    notify?.(`นำ ${domain} ออกจาก Blacklist แล้ว`);
-  };
-
+function Blacklist({ entries, newSite, setNewSite, onAdd, onRemove, busy }) {
   return (
     <Card className="p-5 md:p-6">
       <div className="flex items-center gap-2 mb-1">
@@ -235,14 +297,24 @@ function Blacklist({ domains, blocked, setBlocked, newSite, setNewSite, addToBla
       </div>
       <p className="text-xs text-muted mb-5">จัดการโดเมนที่ไม่อนุญาตให้เข้าจากเครื่องในห้องแล็บ</p>
       <div className="space-y-2 mb-5">
-        {domains.map((domain) => (
-          <div key={domain} className="flex items-center justify-between gap-3 border border-rose-100 bg-rose-50 rounded-xl px-3.5 py-3 text-xs">
-            <span className="font-medium text-rose-700">{domain}</span>
-            <button onClick={() => remove(domain)} className="text-rose-600 flex items-center gap-1 hover:text-rose-800">
+        {entries.map((entry) => (
+          <div key={entry.id} className="flex items-center justify-between gap-3 border border-rose-100 bg-rose-50 rounded-xl px-3.5 py-3 text-xs">
+            <div>
+              <span className="font-medium text-rose-700">{entry.domain}</span>
+              {entry.category && <span className="text-rose-400 ml-2">{entry.category}</span>}
+            </div>
+            <button
+              onClick={() => onRemove(entry)}
+              disabled={busy}
+              className="text-rose-600 flex items-center gap-1 hover:text-rose-800 disabled:opacity-50"
+            >
               <X size={13} /> นำออก
             </button>
           </div>
         ))}
+        {entries.length === 0 && (
+          <div className="py-8 text-center text-xs text-muted">ยังไม่มีโดเมนใน Blacklist</div>
+        )}
       </div>
       <div className="flex flex-col sm:flex-row gap-2">
         <input
@@ -254,10 +326,9 @@ function Blacklist({ domains, blocked, setBlocked, newSite, setNewSite, addToBla
         <Button
           variant="danger"
           icon={Ban}
-          onClick={() => {
-            const domain = newSite.trim().toLowerCase();
-            if (!domain) return;
-            addToBlacklist(domain);
+          disabled={busy}
+          onClick={async () => {
+            await onAdd(newSite);
             setNewSite("");
           }}
         >

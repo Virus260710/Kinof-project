@@ -5,6 +5,10 @@ function authHeaders() {
   return auth?.accessToken ? { Authorization: `Bearer ${auth.accessToken}` } : {};
 }
 
+export function getAdminDashboard() {
+  return apiFetch("/api/admin/dashboard");
+}
+
 export function getAdminRooms() {
   return apiFetch("/api/admin/rooms");
 }

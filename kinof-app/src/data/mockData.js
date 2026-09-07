@@ -16,8 +16,6 @@ export const programs = [
   { name: "Microsoft Team", time: "26 นาที" },
 ];
 
-export const initialBlocked = ["uea8sabai.com"];
-
 export const scheduleRows = [
   { day: "วันจันทร์", course: "IT319 / Low-Code and No-Code Development Platform", time: "09.00 น. - 11.30 น.", room: "ห้องแล็บ 1" },
   { day: "วันอังคาร", course: "", time: "", room: "" },

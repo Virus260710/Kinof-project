@@ -22,6 +22,14 @@ public static class AdminEndpoints
 
         var admin = app.MapGroup("/api/admin").RequireAuthorization();
 
+        admin.MapGet("/dashboard", (
+            ClaimsPrincipal user,
+            DashboardService service,
+            CancellationToken cancellationToken) =>
+            StaffAuth.IsStaff(user)
+                ? service.GetAsync(cancellationToken)
+                : Task.FromResult(Results.Forbid()));
+
         admin.MapGet("/users", (
             ClaimsPrincipal user,
             AdminUserService service,

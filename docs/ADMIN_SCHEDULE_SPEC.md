@@ -60,7 +60,7 @@ Timezone: **Asia/Bangkok** ทุก datetime / slot / schedule
 
 - Booking ทับ schedule แม้ส่วนเดียว → **block ทั้งรอบ** (MVP)
 - Schedule 2 คาบ ห้องเดียวกันทับกัน → **reject** ตอน save/import
-- Partial booking หลังเลิกเรียน = Phase ถัดไป
+- Partial booking หลังเลิกเรียน — **ไม่ทำใน MVP** (post-MVP / เมื่อมี demand)
 
 ---
 

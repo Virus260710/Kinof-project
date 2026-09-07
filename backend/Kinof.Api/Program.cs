@@ -34,6 +34,10 @@ builder.Services.AddScoped<AuditLogService>();
 builder.Services.AddScoped<AdminUserService>();
 builder.Services.AddScoped<RoomAdminService>();
 builder.Services.AddScoped<ScheduleService>();
+builder.Services.AddScoped<DashboardService>();
+builder.Services.AddScoped<AgentService>();
+builder.Services.AddScoped<TrackingService>();
+builder.Services.AddScoped<WebsiteBlacklistService>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
     policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
         .AllowAnyHeader()
@@ -279,6 +283,8 @@ rooms.MapGet("/available", (
     service.GetAvailableRoomsAsync(startTime, endTime, cancellationToken));
 
 app.MapAdminAndScheduleEndpoints();
+app.MapAgentEndpoints();
+app.MapTrackingEndpoints();
 
 app.Run();
 

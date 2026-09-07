@@ -41,7 +41,6 @@ import AdminHelpCenter from "./pages/admin/AdminHelpCenter";
 import AdminData from "./pages/admin/AdminData";
 import AdminAuditLog from "./pages/admin/AdminAuditLog";
 
-import { initialBlocked } from "./data/mockData";
 import { getMyBookings, mapBookingRow } from "./api/bookings";
 import { getMyProblemReports, getProblemReports } from "./api/problemReports";
 import { getMe, readStoredAuth, storeAuth } from "./api/auth";
@@ -88,7 +87,6 @@ export default function App() {
 
   const [myBookings, setMyBookings] = useState([]);
   const [problemReports, setProblemReports] = useState([]);
-  const [blocked, setBlocked] = useState(initialBlocked);
 
   useEffect(() => {
     let active = true;
@@ -261,8 +259,6 @@ export default function App() {
         )}
         {role === "admin" && page === "monitor" && (
           <AdminMonitor
-            blocked={blocked}
-            setBlocked={setBlocked}
             notify={notify}
             onOpenTrackingSeat={openTrackingSeat}
           />
