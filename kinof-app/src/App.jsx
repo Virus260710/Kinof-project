@@ -117,10 +117,6 @@ export default function App() {
         setAuth(nextAuth);
         if (isStaffAdmin(user.userType)) {
           setPage("dashboard");
-        } else if (window.location.pathname === "/entry-otp") {
-          setPage("entry-otp");
-        } else {
-          setPage("home");
         }
       })
       .catch(() => {
@@ -146,9 +142,10 @@ export default function App() {
   }, [auth?.accessToken, bootstrapping, role]);
 
   useEffect(() => {
-    if (bootstrapping || !auth?.accessToken || role !== "user") return;
-    if (location.pathname === "/entry-otp") setPage("entry-otp");
-  }, [auth?.accessToken, bootstrapping, location.pathname, role]);
+    if (bootstrapping || !auth?.accessToken || location.pathname !== "/entry-otp") return;
+    if (role === "user") setPage("entry-otp");
+    navigate("/", { replace: true });
+  }, [auth?.accessToken, bootstrapping, location.pathname, navigate, role]);
 
   useEffect(() => {
     if (bootstrapping || !auth?.accessToken) return;
@@ -198,9 +195,6 @@ export default function App() {
   const handleSetPage = (nextPage) => {
     if (nextPage === "tracking") setTrackingNav(null);
     setPage(nextPage);
-    if (role !== "user") return;
-    if (nextPage === "entry-otp") navigate("/entry-otp");
-    else if (location.pathname === "/entry-otp") navigate("/");
   };
 
   const openTrackingRoom = (roomId) => {
@@ -213,15 +207,13 @@ export default function App() {
     setPage("tracking");
   };
 
-  const visiblePage = role === "user" && location.pathname === "/entry-otp" ? "entry-otp" : page;
-
   const appShell = (
     <div className="flex min-h-screen w-full" style={{ background: BG_APP }}>
       <Sidebar
         items={role === "admin"
           ? [...ADMIN_NAV, ...(isSuperAdmin(auth?.user?.userType) ? [{ key: "audit", label: "Log แอดมิน", icon: ScrollText }] : [])]
           : USER_NAV}
-        page={visiblePage}
+        page={page}
         setPage={handleSetPage}
         roleLabel={role === "admin" ? "ระบบดูแลและจองห้องแล็บ" : "ระบบจองห้องแล็บ"}
         onLogout={handleLogout}
@@ -232,10 +224,10 @@ export default function App() {
       <div className="flex-1 p-4 md:p-8 w-full min-w-0">
         <TopBar name={getDisplayName(auth?.user)} onMenuClick={() => setSidebarOpen(true)} />
 
-        {role === "user" && visiblePage === "home" && (
+        {role === "user" && page === "home" && (
           <UserHome setPage={handleSetPage} myBookings={myBookings} auth={auth} />
         )}
-        {role === "user" && visiblePage === "book" && (
+        {role === "user" && page === "book" && (
           <BookRoom
             existingBookings={myBookings}
             onBookingCreated={(booking) => (
@@ -243,10 +235,10 @@ export default function App() {
             )}
             auth={auth}
             notify={notify}
-            setPage={setPage}
+            setPage={handleSetPage}
           />
         )}
-        {role === "user" && visiblePage === "invite" && (
+        {role === "user" && page === "invite" && (
           <Invitation
             notify={notify}
             onInvitationAccepted={(booking) => (
@@ -254,11 +246,11 @@ export default function App() {
             )}
           />
         )}
-        {role === "user" && visiblePage === "entry-otp" && (
+        {role === "user" && page === "entry-otp" && (
           <EntryOtp myBookings={myBookings} notify={notify} />
         )}
-        {role === "user" && visiblePage === "profile" && <UserProfile auth={auth} setPage={handleSetPage} />}
-        {role === "user" && visiblePage === "help" && (
+        {role === "user" && page === "profile" && <UserProfile auth={auth} setPage={handleSetPage} />}
+        {role === "user" && page === "help" && (
           <UserHelp
             problemReports={problemReports}
             onSubmitted={(report) => setProblemReports((current) => [report, ...current])}
@@ -366,22 +358,6 @@ export default function App() {
       <Route
         path="/register/face/success"
         element={auth ? <FaceEnrollSuccess /> : <Navigate to="/login" replace />}
-      />
-      <Route
-        path="/entry-otp"
-        element={
-          auth ? (
-            needsFaceEnroll ? (
-              <Navigate to="/register/face" replace />
-            ) : role === "admin" ? (
-              <Navigate to="/" replace />
-            ) : (
-              appShell
-            )
-          ) : (
-            <Navigate to="/login" replace />
-          )
-        }
       />
       <Route
         path="*"
