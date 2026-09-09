@@ -213,7 +213,18 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
       });
       setBookingsList((prev) => [...prev, booking]);
       onBookingCreated?.(booking);
-      notify?.("ยืนยันการจองและส่งคำเชิญเรียบร้อยแล้ว");
+      if ((booking.invitationsCreated ?? 0) > 0) {
+        const skipped = booking.invitationsSkipped ?? 0;
+        notify?.(
+          skipped > 0
+            ? `จองสำเร็จ ส่งคำเชิญ ${booking.invitationsCreated} คน (ข้าม ${skipped} คนที่ไม่พบในระบบ)`
+            : `จองสำเร็จ ส่งคำเชิญทางอีเมล ${booking.invitationsCreated} คนแล้ว — แจ้งเพื่อนเปิดเมนู "คำเชิญ"`,
+        );
+      } else if ((booking.invitationsRequested ?? 0) > 0) {
+        notify?.("จองสำเร็จ แต่ไม่พบผู้ใช้ที่เชิญในระบบ — ไม่ได้ส่งคำเชิญ");
+      } else {
+        notify?.("ยืนยันการจองเรียบร้อยแล้ว");
+      }
       setIsSubmitted(true);
     } catch (error) {
       setRequestError(error.message);

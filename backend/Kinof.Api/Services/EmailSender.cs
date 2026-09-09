@@ -38,6 +38,15 @@ public interface IEmailSender
         string code,
         string? roomName,
         CancellationToken cancellationToken);
+    Task<EmailDeliveryResult> SendGroupInvitationEmailAsync(
+        string email,
+        string firstName,
+        string inviterName,
+        string roomName,
+        DateTime startTimeUtc,
+        DateTime endTimeUtc,
+        string appLink,
+        CancellationToken cancellationToken);
 }
 
 public sealed record EmailDeliveryResult(bool Delivered, string Mode);
@@ -235,6 +244,67 @@ public sealed class EmailSender(
         return await SendSmtpOrDevConsoleFallbackAsync(
             message,
             $"Development email fallback (SMTP send failed): entry OTP for {email} is {code} (valid 10 minutes{roomLog})",
+            cancellationToken);
+    }
+
+    public async Task<EmailDeliveryResult> SendGroupInvitationEmailAsync(
+        string email,
+        string firstName,
+        string inviterName,
+        string roomName,
+        DateTime startTimeUtc,
+        DateTime endTimeUtc,
+        string appLink,
+        CancellationToken cancellationToken)
+    {
+        var bangkok = TimeZoneInfo.FindSystemTimeZoneById("Asia/Bangkok");
+        var startLocal = TimeZoneInfo.ConvertTimeFromUtc(startTimeUtc, bangkok);
+        var endLocal = TimeZoneInfo.ConvertTimeFromUtc(endTimeUtc, bangkok);
+        var timeRange =
+            $"{startLocal:dd/MM/yyyy HH:mm} – {endLocal:HH:mm} น. (เวลาไทย)";
+
+        var smtpConfigured =
+            !string.IsNullOrWhiteSpace(_options.SmtpHost) &&
+            !string.IsNullOrWhiteSpace(_options.Username) &&
+            !string.IsNullOrWhiteSpace(_options.Password);
+        if (!smtpConfigured)
+        {
+            if (!environment.IsDevelopment())
+                throw new InvalidOperationException("Email SMTP credentials must be configured outside Development.");
+
+            logger.LogWarning(
+                "Development email fallback: group invitation for {Email} from {Inviter} — room {RoomName}, {TimeRange}. Open {AppLink} and go to คำเชิญ",
+                email,
+                inviterName,
+                roomName,
+                timeRange,
+                appLink);
+            return new EmailDeliveryResult(false, "console");
+        }
+
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress(_options.FromName, _options.FromAddress));
+        message.To.Add(MailboxAddress.Parse(email));
+        message.Subject = $"คำเชิญเข้าร่วมจองห้อง {roomName} — KINOF";
+        message.Body = new TextPart("plain")
+        {
+            Text = $"""
+                    สวัสดี {firstName},
+
+                    {inviterName} เชิญคุณเข้าร่วมจองห้องแล็บ
+                    ห้อง: {roomName}
+                    เวลา: {timeRange}
+
+                    เข้าสู่ระบบ KINOF แล้วเปิดเมนู "คำเชิญ" เพื่อยอมรับหรือปฏิเสธ:
+                    {appLink}
+
+                    — KINOF ระบบจองห้องแล็บ
+                    """
+        };
+
+        return await SendSmtpOrDevConsoleFallbackAsync(
+            message,
+            $"Development email fallback (SMTP send failed): group invitation for {email} from {inviterName} — room {roomName}, {timeRange}. Open {appLink} and go to คำเชิญ",
             cancellationToken);
     }
 

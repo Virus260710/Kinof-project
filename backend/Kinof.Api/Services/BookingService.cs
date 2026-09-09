@@ -9,7 +9,13 @@ public sealed record CreateBookingRequest(
     DateTime EndTime,
     IReadOnlyCollection<Guid>? InviteeUserIds);
 
-public sealed class BookingService(AppDbContext db, InvitationService invitationService, ScheduleService scheduleService)
+public sealed class BookingService(
+    AppDbContext db,
+    InvitationService invitationService,
+    ScheduleService scheduleService,
+    IEmailSender emailSender,
+    IConfiguration configuration,
+    ILogger<BookingService> logger)
 {
     public async Task<IResult> GetRoomsAsync(CancellationToken cancellationToken)
     {
@@ -159,6 +165,7 @@ public sealed class BookingService(AppDbContext db, InvitationService invitation
         db.Bookings.Add(booking);
         await db.SaveChangesAsync(cancellationToken);
 
+        var invitationsCreated = 0;
         if (invitees.Count > 0)
         {
             var group = new BookingGroup { BookingId = booking.Id, OwnerUserId = userId };
@@ -181,8 +188,55 @@ public sealed class BookingService(AppDbContext db, InvitationService invitation
                 });
             }
             await db.SaveChangesAsync(cancellationToken);
+            invitationsCreated = invitees.Count;
         }
+
+        if (inviteeIds.Length > invitees.Count)
+        {
+            logger.LogWarning(
+                "Booking {BookingId}: {Requested} invitee ids requested but only {Created} active users matched",
+                booking.Id,
+                inviteeIds.Length,
+                invitees.Count);
+        }
+
         await transaction.CommitAsync(cancellationToken);
+
+        if (invitationsCreated > 0)
+        {
+            var inviter = await db.Users
+                .AsNoTracking()
+                .SingleAsync(x => x.Id == userId, cancellationToken);
+            var inviterName = $"{inviter.FirstName} {inviter.LastName}".Trim();
+            var appLink = (configuration["Frontend:BaseUrl"] ?? "http://localhost:5173").TrimEnd('/');
+
+            foreach (var invitee in invitees)
+            {
+                try
+                {
+                    var delivery = await emailSender.SendGroupInvitationEmailAsync(
+                        invitee.Email,
+                        invitee.FirstName,
+                        inviterName,
+                        room.Name,
+                        booking.StartTime,
+                        booking.EndTime,
+                        appLink,
+                        cancellationToken);
+                    logger.LogInformation(
+                        "Group invitation email for {InviteeEmail} delivery mode: {Mode}",
+                        invitee.Email,
+                        delivery.Mode);
+                }
+                catch (Exception exception)
+                {
+                    logger.LogWarning(
+                        exception,
+                        "Failed to send group invitation email to {InviteeEmail}",
+                        invitee.Email);
+                }
+            }
+        }
 
         return Results.Ok(new
         {
@@ -192,7 +246,10 @@ public sealed class BookingService(AppDbContext db, InvitationService invitation
             building = room.Building,
             startTime = booking.StartTime,
             endTime = booking.EndTime,
-            status = booking.Status.ToString().ToLowerInvariant()
+            status = booking.Status.ToString().ToLowerInvariant(),
+            invitationsRequested = inviteeIds.Length,
+            invitationsCreated,
+            invitationsSkipped = Math.Max(0, inviteeIds.Length - invitationsCreated)
         });
     }
 }
