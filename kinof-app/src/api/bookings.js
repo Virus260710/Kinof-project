@@ -23,6 +23,18 @@ export function createBooking({ roomId, startTime, endTime, inviteeUserIds = [] 
   });
 }
 
+export function getBookingGroupStatus(bookingId) {
+  return apiFetch(`/api/bookings/${bookingId}/group-status`);
+}
+
+export function confirmBooking(bookingId) {
+  return apiFetch(`/api/bookings/${bookingId}/confirm`, { method: "POST" });
+}
+
+export function cancelPendingBooking(bookingId) {
+  return apiFetch(`/api/bookings/${bookingId}/cancel-pending`, { method: "POST" });
+}
+
 export function searchUsers(query) {
   return apiFetch(`/api/invitations/users?query=${encodeURIComponent(query)}`);
 }

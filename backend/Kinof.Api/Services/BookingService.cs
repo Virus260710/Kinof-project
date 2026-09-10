@@ -17,6 +17,9 @@ public sealed class BookingService(
     IConfiguration configuration,
     ILogger<BookingService> logger)
 {
+    private static readonly BookingStatus[] RoomBlockingStatuses =
+        [BookingStatus.Confirmed, BookingStatus.Pending];
+
     public async Task<IResult> GetRoomsAsync(CancellationToken cancellationToken)
     {
         var rooms = await db.Rooms
@@ -47,7 +50,7 @@ public sealed class BookingService(
         var bookedRoomIds = await db.Bookings
             .AsNoTracking()
             .Where(x =>
-                x.Status == BookingStatus.Confirmed &&
+                RoomBlockingStatuses.Contains(x.Status) &&
                 x.StartTime < endTime &&
                 x.EndTime > startTime)
             .Select(x => x.RoomId)
@@ -85,7 +88,8 @@ public sealed class BookingService(
         var bookings = await db.Bookings
             .AsNoTracking()
             .Where(x =>
-                x.Status == BookingStatus.Confirmed &&
+                (x.Status == BookingStatus.Confirmed ||
+                 (x.Status == BookingStatus.Pending && x.UserId == userId)) &&
                 (x.UserId == userId ||
                  db.GroupMembers.Any(member =>
                      member.UserId == userId &&
@@ -112,6 +116,124 @@ public sealed class BookingService(
         return Results.Ok(bookings);
     }
 
+    public async Task<IResult> GetBookingGroupStatusAsync(
+        Guid userId,
+        Guid bookingId,
+        CancellationToken cancellationToken)
+    {
+        var booking = await db.Bookings
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == bookingId && x.UserId == userId, cancellationToken);
+        if (booking is null)
+            return Results.NotFound(new { message = "ไม่พบการจองนี้" });
+
+        var group = await db.BookingGroups
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.BookingId == bookingId, cancellationToken);
+        if (group is null)
+        {
+            return Results.Ok(new
+            {
+                bookingId,
+                status = booking.Status.ToString().ToLowerInvariant(),
+                members = Array.Empty<object>(),
+                allAccepted = true,
+                hasDeclined = false,
+                canConfirm = booking.Status == BookingStatus.Pending
+            });
+        }
+
+        var members = await db.Invitations
+            .AsNoTracking()
+            .Where(x => x.GroupId == group.Id)
+            .Join(
+                db.Users.AsNoTracking(),
+                invitation => invitation.InviteeUserId,
+                user => user.Id,
+                (invitation, user) => new
+                {
+                    id = user.Id,
+                    name = user.FirstName + " " + user.LastName,
+                    email = user.Email,
+                    status = invitation.Status.ToString().ToLowerInvariant()
+                })
+            .ToListAsync(cancellationToken);
+
+        var hasDeclined = members.Any(x => x.status == "declined");
+        var allAccepted = members.Count > 0 && members.All(x => x.status == "accepted");
+
+        return Results.Ok(new
+        {
+            bookingId,
+            status = booking.Status.ToString().ToLowerInvariant(),
+            members,
+            allAccepted,
+            hasDeclined,
+            canConfirm = booking.Status == BookingStatus.Pending && allAccepted && !hasDeclined
+        });
+    }
+
+    public async Task<IResult> ConfirmBookingAsync(
+        Guid userId,
+        Guid bookingId,
+        CancellationToken cancellationToken)
+    {
+        var booking = await db.Bookings.SingleOrDefaultAsync(
+            x => x.Id == bookingId && x.UserId == userId,
+            cancellationToken);
+        if (booking is null)
+            return Results.NotFound(new { message = "ไม่พบการจองนี้" });
+        if (booking.Status != BookingStatus.Pending)
+            return Results.Conflict(new { message = "การจองนี้ยืนยันแล้วหรือไม่สามารถยืนยันได้" });
+
+        var group = await db.BookingGroups
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.BookingId == bookingId, cancellationToken);
+        if (group is not null)
+        {
+            var invitations = await db.Invitations
+                .Where(x => x.GroupId == group.Id)
+                .ToListAsync(cancellationToken);
+            if (invitations.Any(x => x.Status == InvitationStatus.Declined))
+                return Results.Conflict(new { message = "มีสมาชิกปฏิเสธคำเชิญ กรุณายกเลิกและจองใหม่" });
+            if (invitations.Any(x => x.Status == InvitationStatus.Pending))
+                return Results.Conflict(new { message = "รอให้สมาชิกทุกคนตอบรับคำเชิญก่อนยืนยันการจอง" });
+        }
+
+        booking.Status = BookingStatus.Confirmed;
+        await db.SaveChangesAsync(cancellationToken);
+
+        var room = await db.Rooms.AsNoTracking().SingleAsync(x => x.Id == booking.RoomId, cancellationToken);
+        return Results.Ok(new
+        {
+            id = booking.Id,
+            roomId = room.Id,
+            room = room.Name,
+            building = room.Building,
+            startTime = booking.StartTime,
+            endTime = booking.EndTime,
+            status = booking.Status.ToString().ToLowerInvariant()
+        });
+    }
+
+    public async Task<IResult> CancelPendingBookingAsync(
+        Guid userId,
+        Guid bookingId,
+        CancellationToken cancellationToken)
+    {
+        var booking = await db.Bookings.SingleOrDefaultAsync(
+            x => x.Id == bookingId && x.UserId == userId,
+            cancellationToken);
+        if (booking is null)
+            return Results.NotFound(new { message = "ไม่พบการจองนี้" });
+        if (booking.Status != BookingStatus.Pending)
+            return Results.Conflict(new { message = "ยกเลิกได้เฉพาะการจองที่รอยืนยันเท่านั้น" });
+
+        booking.Status = BookingStatus.Cancelled;
+        await db.SaveChangesAsync(cancellationToken);
+        return Results.Ok(new { ok = true });
+    }
+
     public async Task<IResult> CreateBookingAsync(
         Guid userId,
         CreateBookingRequest request,
@@ -131,7 +253,7 @@ public sealed class BookingService(
         var hasConflict = await db.Bookings.AnyAsync(
             x =>
                 x.RoomId == request.RoomId &&
-                x.Status == BookingStatus.Confirmed &&
+                RoomBlockingStatuses.Contains(x.Status) &&
                 x.StartTime < request.EndTime &&
                 x.EndTime > request.StartTime,
             cancellationToken);
@@ -153,6 +275,10 @@ public sealed class BookingService(
             .Where(x => inviteeIds.Contains(x.Id) && x.Status == UserStatus.Active)
             .ToListAsync(cancellationToken);
 
+        if (inviteeIds.Length > 0 && invitees.Count == 0)
+            return Results.BadRequest(new { message = "ไม่พบผู้ใช้ที่เชิญในระบบ" });
+
+        var hasInvitees = invitees.Count > 0;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var booking = new Booking
         {
@@ -160,13 +286,13 @@ public sealed class BookingService(
             RoomId = request.RoomId,
             StartTime = request.StartTime,
             EndTime = request.EndTime,
-            Status = BookingStatus.Confirmed
+            Status = hasInvitees ? BookingStatus.Pending : BookingStatus.Confirmed
         };
         db.Bookings.Add(booking);
         await db.SaveChangesAsync(cancellationToken);
 
         var invitationsCreated = 0;
-        if (invitees.Count > 0)
+        if (hasInvitees)
         {
             var group = new BookingGroup { BookingId = booking.Id, OwnerUserId = userId };
             db.BookingGroups.Add(group);
@@ -203,40 +329,7 @@ public sealed class BookingService(
         await transaction.CommitAsync(cancellationToken);
 
         if (invitationsCreated > 0)
-        {
-            var inviter = await db.Users
-                .AsNoTracking()
-                .SingleAsync(x => x.Id == userId, cancellationToken);
-            var inviterName = $"{inviter.FirstName} {inviter.LastName}".Trim();
-            var appLink = (configuration["Frontend:BaseUrl"] ?? "http://localhost:5173").TrimEnd('/');
-
-            foreach (var invitee in invitees)
-            {
-                try
-                {
-                    var delivery = await emailSender.SendGroupInvitationEmailAsync(
-                        invitee.Email,
-                        invitee.FirstName,
-                        inviterName,
-                        room.Name,
-                        booking.StartTime,
-                        booking.EndTime,
-                        appLink,
-                        cancellationToken);
-                    logger.LogInformation(
-                        "Group invitation email for {InviteeEmail} delivery mode: {Mode}",
-                        invitee.Email,
-                        delivery.Mode);
-                }
-                catch (Exception exception)
-                {
-                    logger.LogWarning(
-                        exception,
-                        "Failed to send group invitation email to {InviteeEmail}",
-                        invitee.Email);
-                }
-            }
-        }
+            await SendGroupInvitationEmailsAsync(userId, invitees, room.Name, booking, cancellationToken);
 
         return Results.Ok(new
         {
@@ -249,7 +342,49 @@ public sealed class BookingService(
             status = booking.Status.ToString().ToLowerInvariant(),
             invitationsRequested = inviteeIds.Length,
             invitationsCreated,
-            invitationsSkipped = Math.Max(0, inviteeIds.Length - invitationsCreated)
+            invitationsSkipped = Math.Max(0, inviteeIds.Length - invitationsCreated),
+            awaitingMemberConfirmation = hasInvitees
         });
+    }
+
+    private async Task SendGroupInvitationEmailsAsync(
+        Guid userId,
+        IReadOnlyList<User> invitees,
+        string roomName,
+        Booking booking,
+        CancellationToken cancellationToken)
+    {
+        var inviter = await db.Users
+            .AsNoTracking()
+            .SingleAsync(x => x.Id == userId, cancellationToken);
+        var inviterName = $"{inviter.FirstName} {inviter.LastName}".Trim();
+        var appLink = (configuration["Frontend:BaseUrl"] ?? "http://localhost:5173").TrimEnd('/');
+
+        foreach (var invitee in invitees)
+        {
+            try
+            {
+                var delivery = await emailSender.SendGroupInvitationEmailAsync(
+                    invitee.Email,
+                    invitee.FirstName,
+                    inviterName,
+                    roomName,
+                    booking.StartTime,
+                    booking.EndTime,
+                    appLink,
+                    cancellationToken);
+                logger.LogInformation(
+                    "Group invitation email for {InviteeEmail} delivery mode: {Mode}",
+                    invitee.Email,
+                    delivery.Mode);
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(
+                    exception,
+                    "Failed to send group invitation email to {InviteeEmail}",
+                    invitee.Email);
+            }
+        }
     }
 }

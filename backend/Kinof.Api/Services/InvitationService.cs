@@ -84,7 +84,8 @@ public sealed class InvitationService(AppDbContext db)
             .Where(x => x.Id == invitation.GroupId)
             .Join(db.Bookings, group => group.BookingId, booking => booking.Id, (_, booking) => booking)
             .SingleOrDefaultAsync(cancellationToken);
-        if (booking is null || booking.Status != BookingStatus.Confirmed)
+        if (booking is null ||
+            (booking.Status != BookingStatus.Confirmed && booking.Status != BookingStatus.Pending))
             return Results.Conflict(new { message = "การจองของกลุ่มนี้ไม่สามารถเข้าร่วมได้แล้ว" });
 
         var room = await db.Rooms
@@ -146,7 +147,7 @@ public sealed class InvitationService(AppDbContext db)
     {
         var directConflict = await db.Bookings.AnyAsync(x =>
             x.UserId == userId &&
-            x.Status == BookingStatus.Confirmed &&
+            (x.Status == BookingStatus.Confirmed || x.Status == BookingStatus.Pending) &&
             x.StartTime < endTime && x.EndTime > startTime,
             cancellationToken);
         if (directConflict)

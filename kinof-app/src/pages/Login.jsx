@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Users, ShieldAlert, ArrowLeft, Mail, Lock, Chrome } from "lucide-react";
 import { Link } from "react-router-dom";
 import Card from "../components/Card";
+import PasswordInput from "../components/PasswordInput";
 import { NAVY, GOLD } from "../theme";
 import { login } from "../api/auth";
 
@@ -88,18 +89,15 @@ export default function Login({ onOtpRequired }) {
               className="w-full text-sm border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 focus:outline-none focus:border-gray-400"
             />
           </div>
-          <div className="relative">
-            <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              value={pw}
-              onChange={(e) => setPw(e.target.value)}
-              type="password"
-              placeholder="รหัสผ่าน"
-              autoComplete="current-password"
-              required
-              className="w-full text-sm border border-gray-200 rounded-lg pl-9 pr-3 py-2.5 focus:outline-none focus:border-gray-400"
-            />
-          </div>
+          <PasswordInput
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+            icon={Lock}
+            placeholder="รหัสผ่าน"
+            autoComplete="current-password"
+            required
+            className="w-full text-sm border border-gray-200 rounded-lg pl-9 pr-10 py-2.5 focus:outline-none focus:border-gray-400"
+          />
           <Link to="/forgot-password" className="self-end text-xs text-gray-500 underline hover:text-gray-700">
             ลืมรหัสผ่าน?
           </Link>

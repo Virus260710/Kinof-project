@@ -4,7 +4,7 @@ public enum UserType { Student, Staff, External, Admin, SuperAdmin }
 public enum UserStatus { Active, Disabled }
 public enum RoomStatus { Open, Closed, Maintenance }
 public enum SeatStatus { Available, Occupied, Offline }
-public enum BookingStatus { Confirmed, Cancelled, Completed, Expired }
+public enum BookingStatus { Confirmed, Cancelled, Completed, Expired, Pending }
 public enum InvitationStatus { Pending, Accepted, Declined }
 public enum ProblemReportStatus { Pending, InProgress, Resolved }
 public enum AuthMethod { Face, OtpFallback }

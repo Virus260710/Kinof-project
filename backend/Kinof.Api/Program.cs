@@ -260,6 +260,39 @@ bookings.MapPost("/", (
         ? Task.FromResult(Results.Unauthorized())
         : service.CreateBookingAsync(userId.Value, request, cancellationToken);
 });
+bookings.MapGet("/{bookingId:guid}/group-status", (
+    Guid bookingId,
+    ClaimsPrincipal user,
+    BookingService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.GetBookingGroupStatusAsync(userId.Value, bookingId, cancellationToken);
+});
+bookings.MapPost("/{bookingId:guid}/confirm", (
+    Guid bookingId,
+    ClaimsPrincipal user,
+    BookingService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.ConfirmBookingAsync(userId.Value, bookingId, cancellationToken);
+});
+bookings.MapPost("/{bookingId:guid}/cancel-pending", (
+    Guid bookingId,
+    ClaimsPrincipal user,
+    BookingService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.CancelPendingBookingAsync(userId.Value, bookingId, cancellationToken);
+});
 
 var invitations = app.MapGroup("/api/invitations").RequireAuthorization();
 invitations.MapGet("/users", (
