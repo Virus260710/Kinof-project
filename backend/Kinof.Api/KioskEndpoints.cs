@@ -25,7 +25,6 @@ public static class KioskEndpoints
             CancellationToken cancellationToken) =>
             service.VerifyEntryOtpAsync(request, cancellationToken));
 
-        // Phase 3C face path: identify the person from a single Kiosk frame and grant entry.
         kiosk.MapPost("/entry/verify-face", (
             KioskVerifyFaceRequest? request,
             KioskService service,

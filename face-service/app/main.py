@@ -102,4 +102,3 @@ async def create_embedding(image: UploadFile = File(...)) -> EmbeddingResponse:
     async with inference_lock:
         embedding = await run_in_threadpool(extract_embedding, image_bytes)
     return EmbeddingResponse(embedding=embedding)
-

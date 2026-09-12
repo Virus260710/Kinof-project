@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Home,
   Calendar,
@@ -46,7 +46,19 @@ import AdminAuditLog from "./pages/admin/AdminAuditLog";
 
 import { getMyBookings, mapBookingRow } from "./api/bookings";
 import { getMyProblemReports, getProblemReports } from "./api/problemReports";
-import { getMe, readStoredAuth, storeAuth } from "./api/auth";
+import {
+  adoptBrowserSession,
+  beginBrowserSession,
+  clearStoredAuth,
+  ensureBrowserSession,
+  getMe,
+  getTabSessionId,
+  isSessionTakenOver,
+  markSessionTakenOver,
+  peekStoredAuth,
+  readStoredAuth,
+  storeAuth,
+} from "./api/auth";
 import { BG_APP } from "./theme";
 import { getDisplayName } from "./utils/displayName";
 import { isStaffAdmin, isSuperAdmin } from "./utils/roles";
@@ -80,9 +92,9 @@ function readStoredJson(storage, key) {
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [auth, setAuth] = useState(() => readStoredAuth());
-  const [bootstrapping, setBootstrapping] = useState(() => Boolean(readStoredAuth()));
   const [pendingLogin, setPendingLogin] = useState(() => readStoredJson(sessionStorage, "kinofPendingLogin"));
+  const [auth, setAuth] = useState(() => (pendingLogin ? null : readStoredAuth()));
+  const [bootstrapping, setBootstrapping] = useState(() => !pendingLogin && Boolean(readStoredAuth()));
   const role = isStaffAdmin(auth?.user?.userType) ? "admin" : "user";
   const [page, setPage] = useState(() => (role === "admin" ? "dashboard" : "home"));
   const [toast, setToast] = useState("");
@@ -92,12 +104,24 @@ export default function App() {
 
   const [myBookings, setMyBookings] = useState([]);
   const [problemReports, setProblemReports] = useState([]);
+  const tabSessionIdRef = useRef(auth?.sessionId ?? getTabSessionId());
+  const pendingLoginRef = useRef(pendingLogin);
+
+  useEffect(() => {
+    pendingLoginRef.current = pendingLogin;
+  }, [pendingLogin]);
 
   useEffect(() => {
     let active = true;
+    if (readStoredJson(sessionStorage, "kinofPendingLogin")) {
+      setBootstrapping(false);
+      return () => {
+        active = false;
+      };
+    }
+
     const storedAuth = readStoredAuth();
     if (!storedAuth?.accessToken && !storedAuth?.refreshToken) {
-      sessionStorage.removeItem("kinofAuth");
       setAuth(null);
       setBootstrapping(false);
       return () => {
@@ -107,21 +131,21 @@ export default function App() {
 
     getMe()
       .then((user) => {
-        if (!active) return;
-        const currentAuth = readStoredAuth();
+        if (!active || pendingLoginRef.current) return;
+        const currentAuth = readStoredAuth() ?? peekStoredAuth();
         if (!currentAuth?.accessToken) {
           throw new Error("เซสชันหมดอายุ");
         }
-        const nextAuth = { ...currentAuth, user };
-        storeAuth(nextAuth);
-        setAuth(nextAuth);
+        const stamped = ensureBrowserSession({ ...currentAuth, user });
+        setAuth(stamped);
+        tabSessionIdRef.current = stamped.sessionId ?? getTabSessionId();
         if (isStaffAdmin(user.userType)) {
           setPage("dashboard");
         }
       })
       .catch(() => {
-        if (!active) return;
-        sessionStorage.removeItem("kinofAuth");
+        if (!active || pendingLoginRef.current) return;
+        markSessionTakenOver();
         setAuth(null);
         navigate("/login", { replace: true });
       })
@@ -132,6 +156,54 @@ export default function App() {
     return () => {
       active = false;
     };
+  }, [navigate]);
+
+  useEffect(() => {
+    tabSessionIdRef.current = auth?.sessionId ?? getTabSessionId();
+  }, [auth?.sessionId]);
+
+  useEffect(() => {
+    const kickThisTab = (notice) => {
+      markSessionTakenOver();
+      tabSessionIdRef.current = null;
+      sessionStorage.removeItem("kinofPendingLogin");
+      setPendingLogin(null);
+      setAuth(null);
+      navigate("/login", {
+        replace: true,
+        state: notice ? { notice } : undefined,
+      });
+    };
+
+    const onStorage = (event) => {
+      if (event.key !== "kinofSessionId" && event.key !== "kinofAuth") return;
+      if (pendingLoginRef.current) return;
+
+      const nextSessionId = event.key === "kinofSessionId"
+        ? event.newValue
+        : peekStoredAuth()?.sessionId ?? null;
+      const mine = tabSessionIdRef.current;
+
+      if (mine && nextSessionId && nextSessionId !== mine) {
+        kickThisTab("มีการเข้าสู่ระบบจากบัญชีอื่นในเบราว์เซอร์นี้");
+        return;
+      }
+      if (mine && !nextSessionId) {
+        kickThisTab(undefined);
+        return;
+      }
+      if (!mine && nextSessionId) {
+        if (isSessionTakenOver()) return;
+        const adopted = adoptBrowserSession();
+        if (!adopted) return;
+        tabSessionIdRef.current = adopted.sessionId;
+        setAuth(adopted);
+        setPage(isStaffAdmin(adopted.user?.userType) ? "dashboard" : "home");
+        navigate("/", { replace: true });
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, [navigate]);
 
   useEffect(() => {
@@ -159,13 +231,19 @@ export default function App() {
     navigate("/login/otp");
   };
 
+  const handleCancelPendingLogin = () => {
+    sessionStorage.removeItem("kinofPendingLogin");
+    setPendingLogin(null);
+    navigate("/login");
+  };
+
   const handleVerified = (result) => {
-    const nextAuth = {
+    const nextAuth = beginBrowserSession({
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
       user: result.user,
-    };
-    storeAuth(nextAuth);
+    });
+    tabSessionIdRef.current = nextAuth.sessionId;
     sessionStorage.removeItem("kinofPendingLogin");
     setPendingLogin(null);
     setAuth(nextAuth);
@@ -184,7 +262,8 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    sessionStorage.removeItem("kinofAuth");
+    clearStoredAuth();
+    tabSessionIdRef.current = null;
     sessionStorage.removeItem("kinofPendingLogin");
     setAuth(null);
     setPendingLogin(null);
@@ -316,15 +395,25 @@ export default function App() {
       <Route path="/kiosk/:roomId" element={<KioskEntry />} />
       <Route
         path="/login"
-        element={auth ? <Navigate to="/" replace /> : <Login onOtpRequired={handleOtpRequired} />}
+        element={
+          auth && !pendingLogin ? (
+            <Navigate to="/" replace />
+          ) : (
+            <Login onOtpRequired={handleOtpRequired} />
+          )
+        }
       />
       <Route
         path="/login/otp"
         element={
-          auth ? (
+          pendingLogin ? (
+            <OtpVerify
+              pendingLogin={pendingLogin}
+              onVerified={handleVerified}
+              onBack={handleCancelPendingLogin}
+            />
+          ) : auth ? (
             <Navigate to="/" replace />
-          ) : pendingLogin ? (
-            <OtpVerify pendingLogin={pendingLogin} onVerified={handleVerified} />
           ) : (
             <Navigate to="/login" replace />
           )
@@ -363,7 +452,9 @@ export default function App() {
       <Route
         path="*"
         element={
-          auth ? (
+          pendingLogin ? (
+            <Navigate to="/login/otp" replace />
+          ) : auth ? (
             needsFaceEnroll ? (
               <Navigate to="/register/face" replace />
             ) : (

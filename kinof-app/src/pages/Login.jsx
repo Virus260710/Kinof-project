@@ -1,16 +1,17 @@
 import React, { useState } from "react";
 import { Users, ShieldAlert, ArrowLeft, Mail, Lock, Chrome } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import Card from "../components/Card";
 import PasswordInput from "../components/PasswordInput";
 import { NAVY, GOLD } from "../theme";
 import { login } from "../api/auth";
 
 export default function Login({ onOtpRequired }) {
+  const location = useLocation();
   const [roleChoice, setRoleChoice] = useState(null);
   const [username, setUsername] = useState("");
   const [pw, setPw] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(location.state?.notice ?? "");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (event) => {
@@ -36,6 +37,11 @@ export default function Login({ onOtpRequired }) {
           </div>
           <h1 className="text-xl font-medium text-gray-900 mb-1">ระบบดูแลและจองห้องคอมพิวเตอร์ KINOF</h1>
           <p className="text-sm text-gray-500 mb-8">เลือกประเภทการเข้าใช้งาน</p>
+          {error && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-6 max-w-md mx-auto" role="alert">
+              {error}
+            </p>
+          )}
           <div className="flex gap-4">
             <button
               onClick={() => setRoleChoice("user")}

@@ -6,7 +6,7 @@ import { resendEmailOtp, verifyEmailOtp } from "../api/auth";
 import { isStaffAdmin } from "../utils/roles";
 import { GOLD, NAVY } from "../theme";
 
-export default function OtpVerify({ pendingLogin, onVerified }) {
+export default function OtpVerify({ pendingLogin, onVerified, onBack }) {
   const navigate = useNavigate();
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
@@ -60,7 +60,10 @@ export default function OtpVerify({ pendingLogin, onVerified }) {
   return (
     <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "#F4F5F8" }}>
       <Card className="w-[400px] p-7">
-        <button onClick={() => navigate("/login")} className="flex items-center gap-1 text-xs text-gray-400 mb-5 hover:text-gray-600">
+        <button
+          onClick={() => (onBack ? onBack() : navigate("/login"))}
+          className="flex items-center gap-1 text-xs text-gray-400 mb-5 hover:text-gray-600"
+        >
           <ArrowLeft size={13} /> กลับไปหน้าเข้าสู่ระบบ
         </button>
 

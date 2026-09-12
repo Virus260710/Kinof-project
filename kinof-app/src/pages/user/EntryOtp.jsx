@@ -5,6 +5,8 @@ import Button from "../../components/Button";
 import { getRooms } from "../../api/bookings";
 import { getActiveEntryOtp, requestEntryOtp, resendEntryOtp } from "../../api/auth";
 
+const MONTHLY_LIMIT = 5;
+
 function remainingMs(expiresAt) {
   if (!expiresAt) return 0;
   const raw = String(expiresAt);
@@ -25,6 +27,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
   const [rooms, setRooms] = useState([]);
   const [roomId, setRoomId] = useState("");
   const [active, setActive] = useState(null);
+  const [quota, setQuota] = useState({ used: 0, limit: MONTHLY_LIMIT, remaining: MONTHLY_LIMIT });
   const [nowTick, setNowTick] = useState(Date.now());
   const [loading, setLoading] = useState(true);
   const [requesting, setRequesting] = useState(false);
@@ -33,7 +36,16 @@ export default function EntryOtp({ myBookings = [], notify }) {
 
   const latestBookingRoomId = myBookings[0]?.roomId ?? "";
 
+  const applyQuota = useCallback((data) => {
+    if (typeof data?.monthlyUsed !== "number" && typeof data?.monthlyRemaining !== "number") return;
+    const limit = data.monthlyLimit ?? MONTHLY_LIMIT;
+    const used = data.monthlyUsed ?? Math.max(0, limit - (data.monthlyRemaining ?? 0));
+    const remaining = data.monthlyRemaining ?? Math.max(0, limit - used);
+    setQuota({ used, limit, remaining });
+  }, []);
+
   const applyActive = useCallback((data) => {
+    applyQuota(data);
     if (!data?.hasActive) {
       setActive(null);
       return;
@@ -45,7 +57,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
       maskedEmail: data.maskedEmail,
     });
     if (data.roomId) setRoomId(data.roomId);
-  }, []);
+  }, [applyQuota]);
 
   const refreshActive = useCallback(async () => {
     const data = await getActiveEntryOtp();
@@ -93,6 +105,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
     [active?.expiresAt, nowTick],
   );
   const hasActive = Boolean(active?.expiresAt) && countdownMs > 0;
+  const quotaExhausted = quota.remaining <= 0;
 
   useEffect(() => {
     if (active?.expiresAt && countdownMs <= 0) {
@@ -113,6 +126,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
         : `สร้างรหัสแล้ว — ดู OTP ในหน้าต่าง backend (ส่งไป ${result.maskedEmail})`);
     } catch (requestError) {
       setError(requestError.message);
+      refreshActive().catch(() => {});
     } finally {
       setRequesting(false);
     }
@@ -129,6 +143,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
         : `สร้างรหัสใหม่แล้ว — ดู OTP ในหน้าต่าง backend`);
     } catch (requestError) {
       setError(requestError.message);
+      refreshActive().catch(() => {});
     } finally {
       setResending(false);
     }
@@ -137,8 +152,8 @@ export default function EntryOtp({ myBookings = [], notify }) {
   return (
     <div className="w-full max-w-3xl mx-auto">
       <div className="mb-5">
-        <h1 className="text-xl md:text-2xl font-bold text-ink tracking-tight">รหัสเข้าห้องสำรอง</h1>
-        <p className="text-caption mt-0.5">ขอ OTP ทางอีเมลก่อนไปแล็บ ใช้เมื่อสแกนหน้าไม่สำเร็จที่ Kiosk</p>
+        <h1 className="text-xl md:text-2xl font-bold text-ink tracking-tight">รหัสเข้าห้องฉุกเฉิน</h1>
+        <p className="text-caption mt-0.5">ขอ OTP ทางอีเมลเมื่อสแกนหน้าที่ Kiosk ไม่สำเร็จเท่านั้น</p>
       </div>
 
       <Card className="p-5 md:p-6 mb-5 border-amber-200/80 bg-amber-50/40">
@@ -147,9 +162,13 @@ export default function EntryOtp({ myBookings = [], notify }) {
             <ShieldAlert size={18} />
           </div>
           <div>
-            <div className="text-sm font-semibold text-ink">ใช้เมื่อสแกนหน้าไม่สำเร็จที่ Kiosk เท่านั้น</div>
+            <div className="text-sm font-semibold text-ink">ขอเฉพาะเมื่อสแกนหน้าไม่ได้ — ห้ามแชร์รหัสให้คนอื่น</div>
             <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-              รหัส 6 หลักใช้ได้ 10 นาที และใช้ได้ครั้งเดียว ไม่ต้องขอทุกครั้งถ้าสแกนหน้าผ่าน
+              รหัสฉุกเฉินใช้เมื่อสแกนหน้าที่ Kiosk ไม่สำเร็จเท่านั้น รหัส 6 หลักใช้ได้ 10 นาที ครั้งเดียว
+              ห้ามส่งต่อหรือให้ผู้อื่นกรอกแทน
+            </p>
+            <p className="text-xs font-semibold text-navy-800 mt-2">
+              เหลือ {quota.remaining}/{quota.limit} ครั้งในเดือนนี้
             </p>
           </div>
         </div>
@@ -205,7 +224,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
                     size="sm"
                     icon={RefreshCw}
                     iconPosition="left"
-                    disabled={resending}
+                    disabled={resending || quotaExhausted}
                     onClick={handleResend}
                   >
                     {resending ? "กำลังส่งใหม่..." : "ส่งใหม่"}
@@ -215,7 +234,7 @@ export default function EntryOtp({ myBookings = [], notify }) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled={requesting}
+                  disabled={requesting || quotaExhausted}
                   onClick={handleRequest}
                 >
                   {requesting ? "กำลังขอรหัสใหม่..." : "ขอรหัสใหม่สำหรับห้องที่เลือก"}
@@ -226,10 +245,14 @@ export default function EntryOtp({ myBookings = [], notify }) {
                 variant="primary"
                 icon={KeyRound}
                 iconPosition="left"
-                disabled={requesting}
+                disabled={requesting || quotaExhausted}
                 onClick={handleRequest}
               >
-                {requesting ? "กำลังขอรหัส..." : "ขอรหัสเข้าห้อง"}
+                {quotaExhausted
+                  ? "ใช้โควต้าเดือนนี้ครบแล้ว"
+                  : requesting
+                    ? "กำลังขอรหัส..."
+                    : "ขอรหัสเข้าห้องฉุกเฉิน"}
               </Button>
             )}
           </>

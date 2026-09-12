@@ -198,6 +198,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.Property(x => x.Description).HasMaxLength(5000);
             entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
             entity.Property(x => x.StaffNote).HasMaxLength(2000);
+            entity.Property(x => x.AdminComment).HasMaxLength(2000);
             entity.HasIndex(x => new { x.UserId, x.CreatedAt });
             entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
