@@ -11,6 +11,9 @@ public sealed class EntryOtpService(
     IEmailSender emailSender,
     ILogger<EntryOtpService> logger)
 {
+    public const int HourlyLimit = 3;
+    public const int MonthlyLimit = 5;
+
     public Task<IResult> RequestAsync(
         Guid userId,
         Guid? roomId,
@@ -34,6 +37,7 @@ public sealed class EntryOtpService(
             return Results.Unauthorized();
 
         var now = DateTime.UtcNow;
+        var quota = await GetMonthlyQuotaAsync(userId, now, cancellationToken);
         var otp = await db.EntryOtps
             .AsNoTracking()
             .Where(x => x.UserId == userId && x.UsedAt == null && x.ExpiresAt > now)
@@ -41,7 +45,13 @@ public sealed class EntryOtpService(
             .FirstOrDefaultAsync(cancellationToken);
 
         if (otp is null)
-            return Results.Ok(new { hasActive = false });
+            return Results.Ok(new
+            {
+                hasActive = false,
+                monthlyUsed = quota.Used,
+                monthlyLimit = quota.Limit,
+                monthlyRemaining = quota.Remaining
+            });
 
         string? roomName = null;
         if (otp.RoomId is Guid roomId)
@@ -58,7 +68,10 @@ public sealed class EntryOtpService(
             expiresAt = DateTime.SpecifyKind(otp.ExpiresAt, DateTimeKind.Utc),
             roomId = otp.RoomId,
             roomName,
-            maskedEmail = MaskEmail(user.Email)
+            maskedEmail = MaskEmail(user.Email),
+            monthlyUsed = quota.Used,
+            monthlyLimit = quota.Limit,
+            monthlyRemaining = quota.Remaining
         });
     }
 
@@ -87,10 +100,22 @@ public sealed class EntryOtpService(
         }
 
         var now = DateTime.UtcNow;
+        var monthly = await GetMonthlyQuotaAsync(user.Id, now, cancellationToken);
+        if (monthly.Used >= MonthlyLimit)
+            return Results.Json(
+                new
+                {
+                    message = "ขอรหัสเข้าห้องฉุกเฉินได้ไม่เกิน 5 ครั้งต่อเดือน",
+                    monthlyUsed = monthly.Used,
+                    monthlyLimit = monthly.Limit,
+                    monthlyRemaining = monthly.Remaining
+                },
+                statusCode: StatusCodes.Status429TooManyRequests);
+
         var sentLastHour = await db.EntryOtps.CountAsync(
             x => x.UserId == user.Id && x.CreatedAt >= now.AddHours(-1),
             cancellationToken);
-        if (sentLastHour >= 3)
+        if (sentLastHour >= HourlyLimit)
             return Results.Json(
                 new { message = "ส่ง OTP เกิน 3 ครั้งต่อชั่วโมง กรุณาลองใหม่ภายหลัง" },
                 statusCode: StatusCodes.Status429TooManyRequests);
@@ -134,6 +159,7 @@ public sealed class EntryOtpService(
                 MaskEmail(user.Email));
         }
 
+        var quota = await GetMonthlyQuotaAsync(user.Id, now, cancellationToken);
         return Results.Ok(new
         {
             ok = true,
@@ -141,9 +167,32 @@ public sealed class EntryOtpService(
             expiresAt = now.AddMinutes(10),
             roomId,
             roomName,
-            deliveryMode
+            deliveryMode,
+            monthlyUsed = quota.Used,
+            monthlyLimit = quota.Limit,
+            monthlyRemaining = quota.Remaining
         });
     }
+
+    private async Task<MonthlyQuota> GetMonthlyQuotaAsync(
+        Guid userId,
+        DateTime nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var monthStartUtc = CurrentBangkokMonthStartUtc(nowUtc);
+        var used = await db.EntryOtps.CountAsync(
+            x => x.UserId == userId && x.CreatedAt >= monthStartUtc,
+            cancellationToken);
+        return new MonthlyQuota(used, MonthlyLimit, Math.Max(0, MonthlyLimit - used));
+    }
+
+    internal static DateTime CurrentBangkokMonthStartUtc(DateTime nowUtc)
+    {
+        var local = BangkokTime.ToLocal(nowUtc);
+        return BangkokTime.ToUtc(new DateTime(local.Year, local.Month, 1));
+    }
+
+    private readonly record struct MonthlyQuota(int Used, int Limit, int Remaining);
 
     private static string MaskEmail(string email)
     {

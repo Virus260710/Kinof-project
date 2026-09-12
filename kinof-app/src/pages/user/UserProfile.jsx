@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import Button from "../../components/Button";
-import { User, Mail, Hash, BookOpen, AlertCircle, Award, KeyRound, ArrowRight } from "lucide-react";
+import { User, Mail, Hash, BookOpen, AlertCircle, Award, KeyRound, ArrowRight, Camera } from "lucide-react";
 import { penaltyHistory } from "../../data/mockData";
 import { getMySchedule, toProfileScheduleRows } from "../../api/schedules";
 
 // TODO(backend): replace score and penalty history when profile-stat endpoints are available.
 export default function UserProfile({ auth, userScore = 95, setPage }) {
+  const navigate = useNavigate();
   const user = auth?.user;
   const [scheduleRows, setScheduleRows] = useState([]);
   const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "ผู้ใช้งาน";
@@ -30,6 +32,23 @@ export default function UserProfile({ auth, userScore = 95, setPage }) {
         <h1 className="text-xl md:text-2xl font-bold text-ink tracking-tight">โปรไฟล์ผู้ใช้งาน</h1>
         <p className="text-caption mt-0.5">ข้อมูลส่วนตัว คะแนนพฤติกรรม และตารางเรียน</p>
       </div>
+
+      {!user?.faceEnrolled && (
+        <Card className="p-5 md:p-6 mb-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-amber-200/80 bg-amber-50/40">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+              <Camera size={18} />
+            </div>
+            <div>
+              <div className="text-xs font-semibold text-muted uppercase tracking-wider mb-1">ลงทะเบียนใบหน้า</div>
+              <p className="text-sm text-slate-700">ยังไม่ได้ลงทะเบียน — สแกนหน้าเพื่อเข้า Kiosk ได้เร็วขึ้น (หรือใช้ OTP สำรองแทนได้)</p>
+            </div>
+          </div>
+          <Button variant="secondary" icon={ArrowRight} onClick={() => navigate("/register/face")}>
+            ลงทะเบียนใบหน้า
+          </Button>
+        </Card>
+      )}
 
       <Card className="p-5 md:p-6 mb-7 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-start gap-3">

@@ -61,6 +61,7 @@ export default function KioskEntry() {
   const [faceNotice, setFaceNotice] = useState("");
   const [otpNotice, setOtpNotice] = useState("");
   const [faceFailCount, setFaceFailCount] = useState(0);
+  const [otpAllowed, setOtpAllowed] = useState(false);
   const [resetIn, setResetIn] = useState(0);
   const [now, setNow] = useState(() => new Date());
   const submittingRef = useRef(false);
@@ -106,6 +107,7 @@ export default function KioskEntry() {
     setFaceNotice("");
     setOtpNotice("");
     setFaceFailCount(0);
+    setOtpAllowed(false);
     setResetIn(0);
   }, []);
 
@@ -115,6 +117,7 @@ export default function KioskEntry() {
     setOtpNotice(notice);
     setDeniedMessage("");
     setResetIn(0);
+    setOtpAllowed(true);
     setStep("otp");
   }, []);
 
@@ -176,15 +179,22 @@ export default function KioskEntry() {
         return;
       }
 
+      // Face Service down / rate-limited: OTP is the emergency fallback right away.
+      if (result.serviceError) {
+        setOtpAllowed(true);
+        setFaceNotice(message);
+        return;
+      }
+
       const attempts = faceFailCountRef.current + 1;
       setFaceFailCount(attempts);
       if (attempts >= MAX_FACE_ATTEMPTS) {
-        goToOtp(`${message} — สแกนไม่ผ่าน ${attempts} ครั้ง กรุณาใช้รหัสจากเว็บ`);
+        goToOtp(`${message} — สแกนไม่ผ่าน ${attempts} ครั้ง กรุณาใช้รหัสฉุกเฉินจากเว็บ`);
       } else {
         setFaceNotice(message);
       }
     } catch (error) {
-      setFaceFailCount((current) => current + 1);
+      setOtpAllowed(true);
       setFaceNotice(error.message);
     } finally {
       setSubmitting(false);
@@ -261,36 +271,24 @@ export default function KioskEntry() {
             <h1 className="text-4xl md:text-6xl font-bold text-ink mt-6 tracking-tight">{room.name}</h1>
             {room.building && <p className="text-lg md:text-2xl text-slate-600 mt-2">{room.building}</p>}
             <p className="text-base md:text-xl text-slate-700 mt-8">
-              {roomOpen ? "แตะเพื่อเริ่มเข้าใช้ห้อง" : "ห้องนี้ยังไม่เปิดให้เข้าใช้งานในขณะนี้"}
+              {roomOpen ? "แตะเพื่อสแกนใบหน้าเข้าใช้ห้อง" : "ห้องนี้ยังไม่เปิดให้เข้าใช้งานในขณะนี้"}
             </p>
 
-            <div className="mt-10 grid gap-4 md:grid-cols-2">
-              <button
-                type="button"
-                disabled={!roomOpen}
-                onClick={() => {
-                  setFaceNotice("");
-                  setFaceFailCount(0);
-                  setStep("face");
-                }}
-                className="rounded-3xl border border-navy-100 bg-navy-50 px-8 py-8 text-left transition-all hover:bg-navy-100 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
-              >
-                <ScanFace size={40} className="text-navy-800" />
-                <div className="text-xl md:text-2xl font-bold text-ink mt-4">สแกนใบหน้า</div>
-                <div className="text-sm md:text-base text-slate-600 mt-1">มองกล้องค้างไว้ ระบบจับภาพเอง</div>
-              </button>
-
-              <button
-                type="button"
-                disabled={!roomOpen}
-                onClick={() => goToOtp()}
-                className="rounded-3xl border border-amber-200 bg-amber-50 px-8 py-8 text-left transition-all hover:bg-amber-100 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
-              >
-                <KeyRound size={40} className="text-gold-600" />
-                <div className="text-xl md:text-2xl font-bold text-ink mt-4">ใช้รหัสจากเว็บ</div>
-                <div className="text-sm md:text-base text-slate-600 mt-1">กรอกรหัส 6 หลักที่ขอไว้</div>
-              </button>
-            </div>
+            <button
+              type="button"
+              disabled={!roomOpen}
+              onClick={() => {
+                setFaceNotice("");
+                setFaceFailCount(0);
+                setOtpAllowed(false);
+                setStep("face");
+              }}
+              className="mt-10 w-full rounded-3xl border border-navy-100 bg-navy-50 px-8 py-8 text-left transition-all hover:bg-navy-100 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+            >
+              <ScanFace size={40} className="text-navy-800" />
+              <div className="text-xl md:text-2xl font-bold text-ink mt-4">สแกนใบหน้า</div>
+              <div className="text-sm md:text-base text-slate-600 mt-1">ทางเข้าหลัก — มองกล้องค้างไว้ ระบบจับภาพเอง</div>
+            </button>
           </KioskPanel>
         ) : step === "face" ? (
           <KioskFaceScan
@@ -300,14 +298,16 @@ export default function KioskEntry() {
             submitting={submitting}
             onCaptured={submitFace}
             onClearNotice={() => setFaceNotice("")}
-            onUseOtp={() => goToOtp()}
+            onUseOtp={() => goToOtp("รหัสฉุกเฉิน — ใช้เมื่อสแกนหน้าไม่สำเร็จเท่านั้น")}
+            otpAllowed={otpAllowed}
+            onCameraError={() => setOtpAllowed(true)}
             onCancel={backToWelcome}
           />
         ) : step === "otp" ? (
           <KioskPanel>
-            <h1 className="text-3xl md:text-4xl font-bold tracking-tight">กรอกรหัสที่ขอจากเว็บ KINOF</h1>
+            <h1 className="text-3xl md:text-4xl font-bold tracking-tight">รหัสฉุกเฉิน — ใช้เมื่อสแกนหน้าไม่สำเร็จเท่านั้น</h1>
             <p className="text-base md:text-lg text-white/90 mt-3">
-              {room.name} · รหัส 6 หลัก ใช้ได้ครั้งเดียวภายใน 10 นาที
+              {room.name} · กรอกรหัส 6 หลักที่ขอจากเว็บ KINOF · ใช้ได้ครั้งเดียวภายใน 10 นาที
             </p>
             {otpNotice && (
               <p
@@ -421,13 +421,15 @@ export default function KioskEntry() {
               หากต้องการความช่วยเหลือ กรุณาติดต่อผู้ดูแลห้องแล็บ · กลับหน้าแรกใน {resetIn} วินาที
             </p>
             <div className="mt-8 flex flex-col md:flex-row items-stretch md:items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => goToOtp()}
-                className="rounded-2xl bg-gold-gradient text-navy-950 px-10 py-5 text-xl font-bold transition-all active:scale-95"
-              >
-                กรอกรหัสอีกครั้ง
-              </button>
+              {otpAllowed && (
+                <button
+                  type="button"
+                  onClick={() => goToOtp("รหัสฉุกเฉิน — ใช้เมื่อสแกนหน้าไม่สำเร็จเท่านั้น")}
+                  className="rounded-2xl bg-gold-gradient text-navy-950 px-10 py-5 text-xl font-bold transition-all active:scale-95"
+                >
+                  กรอกรหัสฉุกเฉิน
+                </button>
+              )}
               <button
                 type="button"
                 onClick={backToWelcome}
@@ -456,9 +458,13 @@ function KioskFaceScan({
   onCaptured,
   onClearNotice,
   onUseOtp,
+  otpAllowed,
+  onCameraError,
   onCancel,
 }) {
-  const handleError = useCallback(() => {}, []);
+  const handleError = useCallback(() => {
+    onCameraError?.();
+  }, [onCameraError]);
   const { videoRef, status, hint, progress, retry, stopCamera, captureNow } = useFaceCapture({
     onCaptured,
     onError: handleError,
@@ -543,17 +549,19 @@ function KioskFaceScan({
             <RefreshCw size={22} /> สแกนใหม่
           </button>
         )}
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            stopCamera();
-            onUseOtp();
-          }}
-          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/15 px-8 py-5 text-lg text-white/95 transition-colors hover:bg-white/10 disabled:opacity-40"
-        >
-          <KeyRound size={20} /> ใช้รหัสจากเว็บ
-        </button>
+        {otpAllowed && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              stopCamera();
+              onUseOtp();
+            }}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-amber-300/40 bg-amber-500/15 px-8 py-5 text-lg text-amber-100 transition-colors hover:bg-amber-500/25 disabled:opacity-40"
+          >
+            <KeyRound size={20} /> รหัสฉุกเฉิน — ใช้เมื่อสแกนหน้าไม่สำเร็จเท่านั้น
+          </button>
+        )}
         <button
           type="button"
           disabled={busy}

@@ -1,15 +1,109 @@
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5106";
 
+const AUTH_KEY = "kinofAuth";
+const SESSION_ID_KEY = "kinofSessionId";
+const TAB_SESSION_KEY = "kinofTabSessionId";
+const TAKEN_OVER_KEY = "kinofSessionTakenOver";
+
+function parseAuthJson(raw) {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function peekStoredAuth() {
+  return parseAuthJson(localStorage.getItem(AUTH_KEY) ?? sessionStorage.getItem(AUTH_KEY));
+}
+
 function readStoredAuth() {
   try {
-    return JSON.parse(sessionStorage.getItem("kinofAuth"));
+    if (sessionStorage.getItem(TAKEN_OVER_KEY)) return null;
+
+    const fromLocal = localStorage.getItem(AUTH_KEY);
+    const fromSession = sessionStorage.getItem(AUTH_KEY);
+    const parsed = parseAuthJson(fromLocal ?? fromSession);
+    if (!parsed) return null;
+    if (!fromLocal) {
+      localStorage.setItem(AUTH_KEY, JSON.stringify(parsed));
+      sessionStorage.removeItem(AUTH_KEY);
+      if (parsed.sessionId) localStorage.setItem(SESSION_ID_KEY, parsed.sessionId);
+    }
+
+    const tabSessionId = sessionStorage.getItem(TAB_SESSION_KEY);
+    if (tabSessionId && parsed.sessionId && tabSessionId !== parsed.sessionId) {
+      return null;
+    }
+    if (!tabSessionId && parsed.sessionId) {
+      sessionStorage.setItem(TAB_SESSION_KEY, parsed.sessionId);
+    }
+    return parsed;
   } catch {
     return null;
   }
 }
 
 function storeAuth(auth) {
-  sessionStorage.setItem("kinofAuth", JSON.stringify(auth));
+  localStorage.setItem(AUTH_KEY, JSON.stringify(auth));
+  sessionStorage.removeItem(AUTH_KEY);
+  if (auth?.sessionId && localStorage.getItem(SESSION_ID_KEY) !== auth.sessionId) {
+    localStorage.setItem(SESSION_ID_KEY, auth.sessionId);
+  }
+}
+
+export function beginBrowserSession(auth) {
+  const sessionId = crypto.randomUUID();
+  const next = { ...auth, sessionId };
+  sessionStorage.removeItem(TAKEN_OVER_KEY);
+  sessionStorage.setItem(TAB_SESSION_KEY, sessionId);
+  storeAuth(next);
+  localStorage.setItem(SESSION_ID_KEY, sessionId);
+  return next;
+}
+
+export function ensureBrowserSession(auth) {
+  if (!auth) return null;
+  const sessionId = auth.sessionId || localStorage.getItem(SESSION_ID_KEY) || crypto.randomUUID();
+  const next = { ...auth, sessionId };
+  sessionStorage.removeItem(TAKEN_OVER_KEY);
+  sessionStorage.setItem(TAB_SESSION_KEY, sessionId);
+  storeAuth(next);
+  localStorage.setItem(SESSION_ID_KEY, sessionId);
+  return next;
+}
+
+export function adoptBrowserSession() {
+  sessionStorage.removeItem(TAKEN_OVER_KEY);
+  const parsed = peekStoredAuth();
+  if (!parsed?.accessToken) return null;
+  return ensureBrowserSession(parsed);
+}
+
+export function clearStoredAuth() {
+  localStorage.removeItem(AUTH_KEY);
+  localStorage.removeItem(SESSION_ID_KEY);
+  sessionStorage.removeItem(AUTH_KEY);
+  sessionStorage.removeItem(TAB_SESSION_KEY);
+  sessionStorage.removeItem(TAKEN_OVER_KEY);
+}
+
+export function markSessionTakenOver() {
+  sessionStorage.setItem(TAKEN_OVER_KEY, "1");
+  sessionStorage.removeItem(TAB_SESSION_KEY);
+}
+
+export function isSessionTakenOver() {
+  return sessionStorage.getItem(TAKEN_OVER_KEY) === "1";
+}
+
+export function getTabSessionId() {
+  return sessionStorage.getItem(TAB_SESSION_KEY);
+}
+
+export function getBrowserSessionId() {
+  return localStorage.getItem(SESSION_ID_KEY);
 }
 
 async function parseResponse(response) {
@@ -62,12 +156,13 @@ export async function apiFetch(path, options = {}) {
         accessToken: refreshed.accessToken,
         refreshToken: refreshed.refreshToken,
         user: refreshed.user,
+        sessionId: auth.sessionId,
       };
       storeAuth(nextAuth);
       headers.Authorization = `Bearer ${nextAuth.accessToken}`;
       response = await fetch(`${API_URL}${path}`, { ...options, headers });
     } catch {
-      sessionStorage.removeItem("kinofAuth");
+      clearStoredAuth();
       throw new Error("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่");
     }
   }

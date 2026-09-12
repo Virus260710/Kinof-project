@@ -167,8 +167,9 @@ public sealed class KioskService(
                 new
                 {
                     granted = false,
-                    message = $"สแกนใบหน้าไม่ผ่านหลายครั้งเกินไป กรุณาใช้รหัสจากเว็บ หรือรอ {minutes} นาที",
-                    suggestOtp = true
+                    message = $"สแกนใบหน้าไม่ผ่านหลายครั้งเกินไป กรุณาใช้รหัสฉุกเฉินจากเว็บ หรือรอ {minutes} นาที",
+                    suggestOtp = true,
+                    serviceError = true
                 },
                 statusCode: StatusCodes.Status429TooManyRequests);
         }
@@ -188,7 +189,8 @@ public sealed class KioskService(
             {
                 granted = false,
                 message = exception.Message,
-                suggestOtp = serviceDown
+                suggestOtp = serviceDown,
+                serviceError = serviceDown
             });
         }
 
