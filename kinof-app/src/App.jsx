@@ -62,6 +62,7 @@ import {
 import { BG_APP } from "./theme";
 import { getDisplayName } from "./utils/displayName";
 import { isStaffAdmin, isSuperAdmin } from "./utils/roles";
+import { getNavBadges } from "./api/nav";
 
 const USER_NAV = [
   { key: "home", label: "หน้าหลัก", icon: Home },
@@ -96,7 +97,10 @@ export default function App() {
   const [auth, setAuth] = useState(() => (pendingLogin ? null : readStoredAuth()));
   const [bootstrapping, setBootstrapping] = useState(() => !pendingLogin && Boolean(readStoredAuth()));
   const role = isStaffAdmin(auth?.user?.userType) ? "admin" : "user";
-  const [page, setPage] = useState(() => (role === "admin" ? "dashboard" : "home"));
+  const [page, setPage] = useState(() => {
+    if (role === "admin") return sessionStorage.getItem("kinofAdminPage") || "dashboard";
+    return "home";
+  });
   const [toast, setToast] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [trackingNav, setTrackingNav] = useState(null);
@@ -104,6 +108,8 @@ export default function App() {
 
   const [myBookings, setMyBookings] = useState([]);
   const [problemReports, setProblemReports] = useState([]);
+  const [navBadges, setNavBadges] = useState({ invite: 0, monitor: 0, helpcenter: 0 });
+  const [badgeTick, setBadgeTick] = useState(0);
   const tabSessionIdRef = useRef(auth?.sessionId ?? getTabSessionId());
   const pendingLoginRef = useRef(pendingLogin);
 
@@ -140,7 +146,7 @@ export default function App() {
         setAuth(stamped);
         tabSessionIdRef.current = stamped.sessionId ?? getTabSessionId();
         if (isStaffAdmin(user.userType)) {
-          setPage("dashboard");
+          setPage(sessionStorage.getItem("kinofAdminPage") || "dashboard");
         }
       })
       .catch(() => {
@@ -225,9 +231,44 @@ export default function App() {
     load().then(setProblemReports).catch(() => setProblemReports([]));
   }, [auth?.accessToken, bootstrapping, role]);
 
+  useEffect(() => {
+    if (bootstrapping || !auth?.accessToken) return undefined;
+    let active = true;
+    const load = () => {
+      getNavBadges()
+        .then((data) => {
+          if (!active) return;
+          setNavBadges({
+            invite: Number(data.invite) || 0,
+            monitor: Number(data.monitor) || 0,
+            helpcenter: Number(data.helpcenter) || 0,
+          });
+        })
+        .catch(() => {
+          if (active) setNavBadges({ invite: 0, monitor: 0, helpcenter: 0 });
+        });
+    };
+    load();
+    const timer = window.setInterval(load, 30000);
+    window.addEventListener("focus", load);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", load);
+    };
+  }, [auth?.accessToken, bootstrapping, role, page, badgeTick]);
+
+  const withBadges = (items) => items.map((item) => ({
+    ...item,
+    badge: navBadges[item.key] || 0,
+  }));
+
   const handleOtpRequired = (loginResult) => {
-    setPendingLogin(loginResult);
-    sessionStorage.setItem("kinofPendingLogin", JSON.stringify(loginResult));
+    const pending = loginResult?.deliveryMode === "smtp"
+      ? { ...loginResult, devOtp: null }
+      : loginResult;
+    setPendingLogin(pending);
+    sessionStorage.setItem("kinofPendingLogin", JSON.stringify(pending));
     navigate("/login/otp");
   };
 
@@ -265,33 +306,39 @@ export default function App() {
     clearStoredAuth();
     tabSessionIdRef.current = null;
     sessionStorage.removeItem("kinofPendingLogin");
+    sessionStorage.removeItem("kinofAdminPage");
+    sessionStorage.removeItem("kinofMonitorTab");
     setAuth(null);
     setPendingLogin(null);
     setSidebarOpen(false);
+    setNavBadges({ invite: 0, monitor: 0, helpcenter: 0 });
     navigate("/login");
   };
 
   const handleSetPage = (nextPage) => {
     if (nextPage === "tracking") setTrackingNav(null);
     setPage(nextPage);
+    if (role === "admin") sessionStorage.setItem("kinofAdminPage", nextPage);
   };
 
   const openTrackingRoom = (roomId) => {
     setTrackingNav({ roomId });
     setPage("tracking");
+    sessionStorage.setItem("kinofAdminPage", "tracking");
   };
 
   const openTrackingSeat = ({ roomId, seatId }) => {
     setTrackingNav({ roomId, seatId });
     setPage("tracking");
+    sessionStorage.setItem("kinofAdminPage", "tracking");
   };
 
   const appShell = (
-    <div className="flex min-h-screen w-full" style={{ background: BG_APP }}>
+    <div className="flex h-screen w-full overflow-hidden" style={{ background: BG_APP }}>
       <Sidebar
         items={role === "admin"
-          ? [...ADMIN_NAV, ...(isSuperAdmin(auth?.user?.userType) ? [{ key: "audit", label: "Log แอดมิน", icon: ScrollText }] : [])]
-          : USER_NAV}
+          ? withBadges([...ADMIN_NAV, ...(isSuperAdmin(auth?.user?.userType) ? [{ key: "audit", label: "Log แอดมิน", icon: ScrollText }] : [])])
+          : withBadges(USER_NAV)}
         page={page}
         setPage={handleSetPage}
         roleLabel={role === "admin" ? "ระบบดูแลและจองห้องแล็บ" : "ระบบจองห้องแล็บ"}
@@ -300,7 +347,7 @@ export default function App() {
         onClose={() => setSidebarOpen(false)}
       />
 
-      <div className="flex-1 p-4 md:p-8 w-full min-w-0">
+      <div className="flex-1 p-4 md:p-8 w-full min-w-0 h-full overflow-y-auto">
         <TopBar name={getDisplayName(auth?.user)} onMenuClick={() => setSidebarOpen(true)} />
 
         {role === "user" && page === "home" && (
@@ -323,6 +370,7 @@ export default function App() {
             onInvitationAccepted={(booking) => (
               setMyBookings((current) => [mapBookingRow(booking), ...current])
             )}
+            onInvitationsChanged={() => setBadgeTick((n) => n + 1)}
           />
         )}
         {role === "user" && page === "entry-otp" && (
@@ -350,13 +398,14 @@ export default function App() {
             notify={notify}
             initialRoomId={trackingNav?.roomId}
             initialSeatId={trackingNav?.seatId}
-            onOpenMonitor={() => setPage("monitor")}
+            onOpenMonitor={() => handleSetPage("monitor")}
           />
         )}
         {role === "admin" && page === "monitor" && (
           <AdminMonitor
             notify={notify}
             onOpenTrackingSeat={openTrackingSeat}
+            onBadgesChanged={() => setBadgeTick((n) => n + 1)}
           />
         )}
         {role === "admin" && page === "export" && <AdminExport notify={notify} />}
@@ -369,6 +418,7 @@ export default function App() {
             problemReports={problemReports}
             setProblemReports={setProblemReports}
             notify={notify}
+            onBadgesChanged={() => setBadgeTick((n) => n + 1)}
           />
         )}
       </div>

@@ -77,7 +77,32 @@ public sealed class AdminUserService(
         db.Users.Add(user);
         await db.SaveChangesAsync(cancellationToken);
 
-        var invite = await SendInviteAsync(user, cancellationToken);
+        EmailDeliveryResult invite;
+        try
+        {
+            invite = await SendInviteAsync(user, cancellationToken);
+        }
+        catch (EmailDeliveryException exception)
+        {
+            logger.LogError(exception, "Admin invite email failed after creating {Username}", user.Username);
+            await auditLog.WriteAsync(
+                actorUserId,
+                "admin.create",
+                "user",
+                user.Id.ToString(),
+                $"{user.Username} ({user.Email})",
+                cancellationToken);
+            return Results.Json(
+                new
+                {
+                    message = "สร้างบัญชีแล้ว แต่ส่งอีเมลเชิญไม่สำเร็จ กรุณากดส่งลิงก์อีกครั้ง",
+                    admin = ToAdminResponse(user),
+                    inviteSent = false,
+                    deliveryMode = EmailDelivery.FailedMode
+                },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+
         await auditLog.WriteAsync(
             actorUserId,
             "admin.create",
@@ -183,7 +208,17 @@ public sealed class AdminUserService(
         if (user is null)
             return Results.NotFound(new { message = "ไม่พบบัญชีผู้ดูแลระบบที่ใช้งานได้" });
 
-        var invite = await SendInviteAsync(user, cancellationToken);
+        EmailDeliveryResult invite;
+        try
+        {
+            invite = await SendInviteAsync(user, cancellationToken);
+        }
+        catch (EmailDeliveryException exception)
+        {
+            logger.LogError(exception, "Admin invite resend failed for {Username}", user.Username);
+            return EmailDelivery.FailedResult();
+        }
+
         await auditLog.WriteAsync(
             actorUserId,
             "admin.invite_resend",
@@ -217,19 +252,11 @@ public sealed class AdminUserService(
 
         var frontendBaseUrl = configuration["Frontend:BaseUrl"] ?? "http://localhost:5173";
         var resetLink = $"{frontendBaseUrl.TrimEnd('/')}/reset-password?token={Uri.EscapeDataString(raw)}";
-        try
-        {
-            return await emailSender.SendAdminInviteEmailAsync(
-                user.Email,
-                user.FirstName,
-                resetLink,
-                cancellationToken);
-        }
-        catch (Exception exception)
-        {
-            logger.LogError(exception, "Admin invite email failed for {Email}", user.Email);
-            return new EmailDeliveryResult(false, "failed");
-        }
+        return await emailSender.SendAdminInviteEmailAsync(
+            user.Email,
+            user.FirstName,
+            resetLink,
+            cancellationToken);
     }
 
     private static object ToAdminResponse(User user) => new

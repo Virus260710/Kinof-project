@@ -13,6 +13,8 @@ public sealed class EmailOptions
     public string Password { get; set; } = "";
     public string FromAddress { get; set; } = "noreply@kinof.local";
     public string FromName { get; set; } = "KINOF Lab System";
+    /// <summary>When true in Development, skip Resend/SMTP and print OTP in the API console (and on the OTP page).</summary>
+    public bool SkipSmtpInDevelopment { get; set; }
 }
 
 public interface IEmailSender
@@ -51,6 +53,26 @@ public interface IEmailSender
 
 public sealed record EmailDeliveryResult(bool Delivered, string Mode);
 
+public sealed class EmailDeliveryException : InvalidOperationException
+{
+    public EmailDeliveryException(string message, Exception? innerException = null)
+        : base(message, innerException)
+    {
+    }
+}
+
+public static class EmailDelivery
+{
+    public const string SmtpMode = "smtp";
+    public const string ConsoleMode = "console";
+    public const string FailedMode = "failed";
+
+    public static IResult FailedResult() =>
+        Results.Json(
+            new { message = "ส่งอีเมลไม่สำเร็จ กรุณาลองใหม่ภายหลัง" },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+}
+
 public sealed class EmailSender(
     IOptions<EmailOptions> options,
     ILogger<EmailSender> logger,
@@ -64,37 +86,23 @@ public sealed class EmailSender(
         string code,
         CancellationToken cancellationToken)
     {
-        var smtpConfigured =
-            !string.IsNullOrWhiteSpace(_options.SmtpHost) &&
-            !string.IsNullOrWhiteSpace(_options.Username) &&
-            !string.IsNullOrWhiteSpace(_options.Password);
-        if (!smtpConfigured)
-        {
-            if (!environment.IsDevelopment())
-                throw new InvalidOperationException("Email SMTP credentials must be configured outside Development.");
-
-            logger.LogWarning(
+        if (!IsSmtpConfigured())
+            return DevFallbackOrThrow(
                 "Development email fallback: login OTP for {Email} is {OtpCode} (valid 10 minutes)",
                 email,
                 code);
-            return new EmailDeliveryResult(false, "console");
-        }
 
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(_options.FromName, _options.FromAddress));
-        message.To.Add(MailboxAddress.Parse(email));
-        message.Subject = "รหัส OTP เข้าสู่ระบบ KINOF";
-        message.Body = new TextPart("plain")
-        {
-            Text = $"""
-                    สวัสดี {firstName},
+        var message = BuildMessage(
+            email,
+            "รหัส OTP เข้าสู่ระบบ KINOF",
+            $"""
+            สวัสดี {firstName},
 
-                    รหัส OTP ของคุณคือ: {code}
-                    ใช้ได้ 10 นาที ห้ามแชร์ให้ผู้อื่น
+            รหัส OTP ของคุณคือ: {code}
+            ใช้ได้ 10 นาที ห้ามแชร์ให้ผู้อื่น
 
-                    — KINOF ระบบจองห้องแล็บ
-                    """
-        };
+            — KINOF ระบบจองห้องแล็บ
+            """);
 
         return await SendSmtpOrDevConsoleFallbackAsync(
             message,
@@ -108,39 +116,25 @@ public sealed class EmailSender(
         string resetLink,
         CancellationToken cancellationToken)
     {
-        var smtpConfigured =
-            !string.IsNullOrWhiteSpace(_options.SmtpHost) &&
-            !string.IsNullOrWhiteSpace(_options.Username) &&
-            !string.IsNullOrWhiteSpace(_options.Password);
-        if (!smtpConfigured)
-        {
-            if (!environment.IsDevelopment())
-                throw new InvalidOperationException("Email SMTP credentials must be configured outside Development.");
-
-            logger.LogWarning(
+        if (!IsSmtpConfigured())
+            return DevFallbackOrThrow(
                 "Development email fallback: password reset link for {Email} is {ResetLink} (valid 1 hour)",
                 email,
                 resetLink);
-            return new EmailDeliveryResult(false, "console");
-        }
 
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(_options.FromName, _options.FromAddress));
-        message.To.Add(MailboxAddress.Parse(email));
-        message.Subject = "รีเซ็ตรหัสผ่าน KINOF";
-        message.Body = new TextPart("plain")
-        {
-            Text = $"""
-                    สวัสดี {firstName},
+        var message = BuildMessage(
+            email,
+            "รีเซ็ตรหัสผ่าน KINOF",
+            $"""
+            สวัสดี {firstName},
 
-                    เปิดลิงก์ด้านล่างเพื่อตั้งรหัสผ่านใหม่:
-                    {resetLink}
+            เปิดลิงก์ด้านล่างเพื่อตั้งรหัสผ่านใหม่:
+            {resetLink}
 
-                    ลิงก์นี้ใช้ได้ 1 ชั่วโมง หากคุณไม่ได้ส่งคำขอนี้ สามารถละเว้นอีเมลฉบับนี้ได้
+            ลิงก์นี้ใช้ได้ 1 ชั่วโมง หากคุณไม่ได้ส่งคำขอนี้ สามารถละเว้นอีเมลฉบับนี้ได้
 
-                    — KINOF ระบบจองห้องแล็บ
-                    """
-        };
+            — KINOF ระบบจองห้องแล็บ
+            """);
 
         return await SendSmtpOrDevConsoleFallbackAsync(
             message,
@@ -154,40 +148,26 @@ public sealed class EmailSender(
         string inviteLink,
         CancellationToken cancellationToken)
     {
-        var smtpConfigured =
-            !string.IsNullOrWhiteSpace(_options.SmtpHost) &&
-            !string.IsNullOrWhiteSpace(_options.Username) &&
-            !string.IsNullOrWhiteSpace(_options.Password);
-        if (!smtpConfigured)
-        {
-            if (!environment.IsDevelopment())
-                throw new InvalidOperationException("Email SMTP credentials must be configured outside Development.");
-
-            logger.LogWarning(
+        if (!IsSmtpConfigured())
+            return DevFallbackOrThrow(
                 "Development email fallback: admin invite link for {Email} is {InviteLink} (valid 48 hours)",
                 email,
                 inviteLink);
-            return new EmailDeliveryResult(false, "console");
-        }
 
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(_options.FromName, _options.FromAddress));
-        message.To.Add(MailboxAddress.Parse(email));
-        message.Subject = "ตั้งรหัสผ่านผู้ดูแลระบบ KINOF";
-        message.Body = new TextPart("plain")
-        {
-            Text = $"""
-                    สวัสดี {firstName},
+        var message = BuildMessage(
+            email,
+            "ตั้งรหัสผ่านผู้ดูแลระบบ KINOF",
+            $"""
+            สวัสดี {firstName},
 
-                    Superadmin ได้สร้างบัญชีผู้ดูแลระบบให้คุณแล้ว
-                    เปิดลิงก์ด้านล่างเพื่อตั้งรหัสผ่าน:
-                    {inviteLink}
+            Superadmin ได้สร้างบัญชีผู้ดูแลระบบให้คุณแล้ว
+            เปิดลิงก์ด้านล่างเพื่อตั้งรหัสผ่าน:
+            {inviteLink}
 
-                    ลิงก์นี้ใช้ได้ 48 ชั่วโมง หลังจากนั้นเข้าสู่ระบบด้วยรหัสผ่านและ OTP อีเมล
+            ลิงก์นี้ใช้ได้ 48 ชั่วโมง หลังจากนั้นเข้าสู่ระบบด้วยรหัสผ่านและ OTP อีเมล
 
-                    — KINOF ระบบจองห้องแล็บ
-                    """
-        };
+            — KINOF ระบบจองห้องแล็บ
+            """);
 
         return await SendSmtpOrDevConsoleFallbackAsync(
             message,
@@ -205,40 +185,26 @@ public sealed class EmailSender(
         var roomLine = string.IsNullOrWhiteSpace(roomName)
             ? ""
             : $"ห้อง: {roomName}{Environment.NewLine}";
-        var smtpConfigured =
-            !string.IsNullOrWhiteSpace(_options.SmtpHost) &&
-            !string.IsNullOrWhiteSpace(_options.Username) &&
-            !string.IsNullOrWhiteSpace(_options.Password);
-        if (!smtpConfigured)
-        {
-            if (!environment.IsDevelopment())
-                throw new InvalidOperationException("Email SMTP credentials must be configured outside Development.");
-
-            logger.LogWarning(
+        if (!IsSmtpConfigured())
+            return DevFallbackOrThrow(
                 "Development email fallback: entry OTP for {Email} is {OtpCode} (valid 10 minutes{RoomSuffix})",
                 email,
                 code,
                 string.IsNullOrWhiteSpace(roomName) ? "" : $", room: {roomName}");
-            return new EmailDeliveryResult(false, "console");
-        }
 
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(_options.FromName, _options.FromAddress));
-        message.To.Add(MailboxAddress.Parse(email));
-        message.Subject = "รหัสเข้าห้องแล็บ KINOF (สำรอง)";
-        message.Body = new TextPart("plain")
-        {
-            Text = $"""
-                    สวัสดี {firstName},
+        var message = BuildMessage(
+            email,
+            "รหัสเข้าห้องแล็บ KINOF (สำรอง)",
+            $"""
+            สวัสดี {firstName},
 
-                    รหัสเข้าห้องแล็บของคุณคือ: {code}
-                    ใช้ได้ 10 นาที ครั้งเดียว ห้ามแชร์ให้ผู้อื่น
+            รหัสเข้าห้องแล็บของคุณคือ: {code}
+            ใช้ได้ 10 นาที ครั้งเดียว ห้ามแชร์ให้ผู้อื่น
 
-                    ใช้เมื่อสแกนหน้าไม่สำเร็จที่ Kiosk เท่านั้น
-                    {roomLine}
-                    — KINOF ระบบจองห้องแล็บ
-                    """
-        };
+            ใช้เมื่อสแกนหน้าไม่สำเร็จที่ Kiosk เท่านั้น
+            {roomLine}
+            — KINOF ระบบจองห้องแล็บ
+            """);
 
         var roomLog = string.IsNullOrWhiteSpace(roomName) ? "" : $", room: {roomName}";
         return await SendSmtpOrDevConsoleFallbackAsync(
@@ -263,44 +229,30 @@ public sealed class EmailSender(
         var timeRange =
             $"{startLocal:dd/MM/yyyy HH:mm} – {endLocal:HH:mm} น. (เวลาไทย)";
 
-        var smtpConfigured =
-            !string.IsNullOrWhiteSpace(_options.SmtpHost) &&
-            !string.IsNullOrWhiteSpace(_options.Username) &&
-            !string.IsNullOrWhiteSpace(_options.Password);
-        if (!smtpConfigured)
-        {
-            if (!environment.IsDevelopment())
-                throw new InvalidOperationException("Email SMTP credentials must be configured outside Development.");
-
-            logger.LogWarning(
+        if (!IsSmtpConfigured())
+            return DevFallbackOrThrow(
                 "Development email fallback: group invitation for {Email} from {Inviter} — room {RoomName}, {TimeRange}. Open {AppLink} and go to คำเชิญ",
                 email,
                 inviterName,
                 roomName,
                 timeRange,
                 appLink);
-            return new EmailDeliveryResult(false, "console");
-        }
 
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(_options.FromName, _options.FromAddress));
-        message.To.Add(MailboxAddress.Parse(email));
-        message.Subject = $"คำเชิญเข้าร่วมจองห้อง {roomName} — KINOF";
-        message.Body = new TextPart("plain")
-        {
-            Text = $"""
-                    สวัสดี {firstName},
+        var message = BuildMessage(
+            email,
+            $"คำเชิญเข้าร่วมจองห้อง {roomName} — KINOF",
+            $"""
+            สวัสดี {firstName},
 
-                    {inviterName} เชิญคุณเข้าร่วมจองห้องแล็บ
-                    ห้อง: {roomName}
-                    เวลา: {timeRange}
+            {inviterName} เชิญคุณเข้าร่วมจองห้องแล็บ
+            ห้อง: {roomName}
+            เวลา: {timeRange}
 
-                    เข้าสู่ระบบ KINOF แล้วเปิดเมนู "คำเชิญ" เพื่อยอมรับหรือปฏิเสธ:
-                    {appLink}
+            เข้าสู่ระบบ KINOF แล้วเปิดเมนู "คำเชิญ" เพื่อยอมรับหรือปฏิเสธ:
+            {appLink}
 
-                    — KINOF ระบบจองห้องแล็บ
-                    """
-        };
+            — KINOF ระบบจองห้องแล็บ
+            """);
 
         return await SendSmtpOrDevConsoleFallbackAsync(
             message,
@@ -308,37 +260,78 @@ public sealed class EmailSender(
             cancellationToken);
     }
 
+    private bool IsSmtpConfigured()
+    {
+        if (environment.IsDevelopment() && _options.SkipSmtpInDevelopment)
+            return false;
+
+        return !string.IsNullOrWhiteSpace(_options.SmtpHost) &&
+            !string.IsNullOrWhiteSpace(_options.Username) &&
+            !string.IsNullOrWhiteSpace(_options.Password);
+    }
+
+    private EmailDeliveryResult DevFallbackOrThrow(string messageTemplate, params object?[] args)
+    {
+        if (!environment.IsDevelopment())
+            throw new EmailDeliveryException(
+                "Email SMTP credentials must be configured with user-secrets or environment variables outside Development.");
+
+        logger.LogWarning(messageTemplate, args);
+        return new EmailDeliveryResult(false, EmailDelivery.ConsoleMode);
+    }
+
+    private MimeMessage BuildMessage(string toEmail, string subject, string body)
+    {
+        var fromAddress = string.IsNullOrWhiteSpace(_options.FromAddress)
+            ? _options.Username.Trim()
+            : _options.FromAddress.Trim();
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress(_options.FromName, fromAddress));
+        message.To.Add(MailboxAddress.Parse(toEmail));
+        message.Subject = subject;
+        message.Body = new TextPart("plain") { Text = body };
+        return message;
+    }
+
     private async Task<EmailDeliveryResult> SendSmtpOrDevConsoleFallbackAsync(
         MimeMessage message,
         string devFallbackLogMessage,
         CancellationToken cancellationToken)
     {
+        var host = _options.SmtpHost.Trim();
+        var username = _options.Username.Trim();
+        var password = _options.Password.Trim();
+        var socketOptions = _options.SmtpPort == 465
+            ? SecureSocketOptions.SslOnConnect
+            : SecureSocketOptions.StartTls;
+
         try
         {
             using var client = new SmtpClient();
-            await client.ConnectAsync(
-                _options.SmtpHost,
-                _options.SmtpPort,
-                SecureSocketOptions.StartTlsWhenAvailable,
-                cancellationToken);
+            await client.ConnectAsync(host, _options.SmtpPort, socketOptions, cancellationToken);
 
-            if (!string.IsNullOrWhiteSpace(_options.Username))
-                await client.AuthenticateAsync(_options.Username, _options.Password, cancellationToken);
-
+            // Some hosts advertise XOAUTH2; API keys / app passwords use SMTP AUTH.
+            client.AuthenticationMechanisms.Remove("XOAUTH2");
+            await client.AuthenticateAsync(username, password, cancellationToken);
             await client.SendAsync(message, cancellationToken);
             await client.DisconnectAsync(true, cancellationToken);
-            return new EmailDeliveryResult(true, "smtp");
+
+            logger.LogInformation(
+                "SMTP email sent subject {Subject} to {RecipientCount} recipient(s)",
+                message.Subject,
+                message.To.Count);
+            return new EmailDeliveryResult(true, EmailDelivery.SmtpMode);
         }
         catch (Exception exception)
         {
             if (!environment.IsDevelopment())
-                throw;
+                throw new EmailDeliveryException("SMTP email delivery failed.", exception);
 
             logger.LogWarning(
                 exception,
                 "{DevFallbackMessage}",
                 devFallbackLogMessage);
-            return new EmailDeliveryResult(false, "console");
+            return new EmailDeliveryResult(false, EmailDelivery.ConsoleMode);
         }
     }
 }

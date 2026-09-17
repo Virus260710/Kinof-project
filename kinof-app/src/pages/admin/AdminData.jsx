@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { CalendarDays, DoorOpen, Shield, Upload, Download, Plus, Pencil, Trash2 } from "lucide-react";
+import { CalendarDays, Copy, DoorOpen, Shield, Upload, Download, Plus, Pencil, Trash2 } from "lucide-react";
 import Card from "../../components/Card";
 import Button from "../../components/Button";
 import Pill from "../../components/Pill";
@@ -11,6 +11,7 @@ import {
   createAdminRoom,
   createAdminSchedule,
   createAdminUser,
+  createKioskDevice,
   deleteAdminRoom,
   deleteAdminSchedule,
   disableAdminUser,
@@ -20,9 +21,11 @@ import {
   getAdminSchedule,
   getAdminSchedules,
   getAdminUsers,
+  getKioskDevices,
   previewScheduleImport,
   removeScheduleStudent,
   resendAdminInvite,
+  revokeKioskDevice,
   updateAdminRoom,
   updateAdminSchedule,
   updateAdminUser,
@@ -453,7 +456,145 @@ function RoomsTab({ notify }) {
           </tbody>
         </table>
       </Card>
+      <KioskDevicesCard rooms={rows} notify={notify} />
     </div>
+  );
+}
+
+function formatKioskWhen(value) {
+  if (!value) return "ยังไม่เคยใช้";
+  return new Date(value).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" });
+}
+
+async function copyText(value) {
+  await navigator.clipboard.writeText(value);
+}
+
+function KioskDevicesCard({ rooms, notify }) {
+  const [roomId, setRoomId] = useState("");
+  const [label, setLabel] = useState("เครื่องประตู");
+  const [devices, setDevices] = useState([]);
+  const [created, setCreated] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = async (selectedRoomId = roomId) => {
+    const rows = await getKioskDevices(selectedRoomId || undefined);
+    setDevices(rows);
+  };
+
+  useEffect(() => {
+    if (!roomId && rooms[0]) setRoomId(rooms[0].id);
+  }, [roomId, rooms]);
+
+  useEffect(() => {
+    load(roomId).catch((error) => notify(error.message));
+  }, [roomId]);
+
+  const createDevice = async (event) => {
+    event.preventDefault();
+    if (!roomId) return;
+    setBusy(true);
+    try {
+      const result = await createKioskDevice({ roomId, label });
+      setCreated(result);
+      setLabel("เครื่องประตู");
+      await load(roomId);
+      notify("สร้างอุปกรณ์แล้ว — คัดลอกคีย์ทันที เพราะจะไม่แสดงอีก");
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revokeDevice = async (device) => {
+    if (!window.confirm(`เพิกถอนคีย์ของ ${device.label || "เครื่องประตู"}? เครื่องที่ใช้อยู่จะเข้าไม่ได้จนกว่าจะตั้งคีย์ใหม่`)) return;
+    try {
+      await revokeKioskDevice(device.id);
+      if (created?.id === device.id) setCreated(null);
+      await load(roomId);
+      notify("เพิกถอนคีย์แล้ว");
+    } catch (error) {
+      notify(error.message);
+    }
+  };
+
+  const setupUrl = created
+    ? `${window.location.origin}/kiosk/${created.roomId}?key=${encodeURIComponent(created.apiKey)}`
+    : "";
+
+  return (
+    <Card className="p-5">
+      <h2 className="text-sm font-bold text-ink">อุปกรณ์ Kiosk ต่อห้อง</h2>
+      <p className="text-xs text-muted mt-1">
+        คีย์ผูกห้อง ไม่ผูกที่นั่ง — เปิดลิงก์บนเครื่องประตูครั้งเดียว แล้วคีย์จะถูกเก็บในเครื่องนั้น ไม่ต้องกรอกบนจอสแกน
+      </p>
+      <form onSubmit={createDevice} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+        <Field label="ห้อง">
+          <select value={roomId} onChange={(event) => setRoomId(event.target.value)} className={inputClass}>
+            {rooms.map((room) => (
+              <option key={room.id} value={room.id}>{room.name}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="ชื่ออุปกรณ์">
+          <input value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} placeholder="เครื่องประตู" />
+        </Field>
+        <div className="flex items-end">
+          <Button size="sm" disabled={!roomId || busy}>{busy ? "กำลังสร้าง..." : "สร้างคีย์"}</Button>
+        </div>
+      </form>
+      {created?.apiKey && (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-xs font-semibold text-amber-900">แสดงคีย์ครั้งเดียว — คัดลอกแล้วเปิดบนเครื่องประตู</p>
+          <p className="mt-2 font-mono text-xs break-all text-ink">{created.apiKey}</p>
+          <p className="mt-2 text-xs text-slate-600 break-all">{setupUrl}</p>
+          <div className="flex gap-2 mt-3">
+            <Button type="button" variant="secondary" size="sm" icon={Copy} onClick={async () => {
+              await copyText(created.apiKey);
+              notify("คัดลอกคีย์แล้ว");
+            }}>คัดลอกคีย์</Button>
+            <Button type="button" variant="secondary" size="sm" icon={Copy} onClick={async () => {
+              await copyText(setupUrl);
+              notify("คัดลอกลิงก์ตั้งค่าแล้ว");
+            }}>คัดลอกลิงก์เครื่องประตู</Button>
+          </div>
+        </div>
+      )}
+      <div className="overflow-x-auto mt-4">
+        <table className="w-full min-w-[640px] text-xs">
+          <thead>
+            <tr className="text-muted text-left border-b">
+              <th className="pb-2 font-normal">อุปกรณ์</th>
+              <th className="pb-2 font-normal">ห้อง</th>
+              <th className="pb-2 font-normal">สถานะ</th>
+              <th className="pb-2 font-normal">ใช้ล่าสุด</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {devices.map((device) => (
+              <tr key={device.id} className="border-b border-slate-50">
+                <td className="py-3">{device.label || "เครื่องประตู"}</td>
+                <td className="py-3">{device.roomName}</td>
+                <td className="py-3">
+                  <Pill tone={device.revoked ? "red" : "green"}>{device.revoked ? "เพิกถอนแล้ว" : "ใช้งานได้"}</Pill>
+                </td>
+                <td className="py-3">{formatKioskWhen(device.lastSeenAt)}</td>
+                <td className="py-3 text-right">
+                  {!device.revoked && (
+                    <Button variant="danger" size="sm" onClick={() => revokeDevice(device)}>เพิกถอน</Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {devices.length === 0 && (
+              <tr><td colSpan={5} className="py-8 text-center text-muted">ยังไม่มีอุปกรณ์ Kiosk ของห้องนี้</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 
@@ -481,7 +622,13 @@ function AdminsTab({ notify }) {
         notify("บันทึกผู้ดูแลระบบแล้ว");
       } else {
         const result = await createAdminUser(form);
-        notify(result.deliveryMode === "smtp" ? "สร้างบัญชีและส่งลิงก์ตั้งรหัสแล้ว" : "สร้างบัญชีแล้ว — ลิงก์ตั้งรหัสอยู่ใน console backend");
+        notify(
+          result.deliveryMode === "smtp"
+            ? "สร้างบัญชีและส่งลิงก์ตั้งรหัสแล้ว"
+            : result.deliveryMode === "console"
+              ? "สร้างบัญชีแล้ว — ลิงก์ตั้งรหัสอยู่ใน console backend"
+              : "สร้างบัญชีแล้ว แต่ส่งอีเมลไม่สำเร็จ กรุณากดส่งลิงก์อีกครั้ง"
+        );
       }
       setForm(empty);
       setEditingId(null);
@@ -521,7 +668,7 @@ function AdminsTab({ notify }) {
                 <td className="py-3">
                   <div className="flex gap-2 justify-end">
                     <Button variant="secondary" size="sm" onClick={() => { setEditingId(row.id); setForm({ username: row.username, email: row.email, firstName: row.firstName, lastName: row.lastName, jobTitle: row.jobTitle ?? "", phone: row.phone ?? "" }); }}>แก้ไข</Button>
-                    <Button variant="ghost" size="sm" onClick={async () => { try { await resendAdminInvite(row.id); notify("ส่งลิงก์ตั้งรหัสแล้ว"); } catch (error) { notify(error.message); } }}>ส่งลิงก์</Button>
+                    <Button variant="ghost" size="sm" onClick={async () => { try { const result = await resendAdminInvite(row.id); notify(result.deliveryMode === "smtp" ? "ส่งลิงก์ตั้งรหัสทางอีเมลแล้ว" : result.deliveryMode === "console" ? "ลิงก์ตั้งรหัสอยู่ใน console backend" : "ส่งอีเมลไม่สำเร็จ กรุณาลองใหม่"); } catch (error) { notify(error.message); } }}>ส่งลิงก์</Button>
                     {row.status === "active"
                       ? <Button variant="danger" size="sm" onClick={() => setConfirmDisable(row)}>ปิดบัญชี</Button>
                       : <Button variant="secondary" size="sm" onClick={async () => { try { await enableAdminUser(row.id); await load(); notify("เปิดบัญชีแล้ว"); } catch (error) { notify(error.message); } }}>เปิดบัญชี</Button>}

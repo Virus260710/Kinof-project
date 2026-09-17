@@ -1,4 +1,4 @@
-import { API_URL, apiFetch, readStoredAuth } from "./auth";
+import { API_URL, apiDownload, apiFetch, readStoredAuth, saveBlob } from "./auth";
 
 function authHeaders() {
   const auth = readStoredAuth();
@@ -107,8 +107,40 @@ export function resendAdminInvite(id) {
   return apiFetch(`/api/admin/users/${id}/resend-invite`, { method: "POST" });
 }
 
+export function getKioskDevices(roomId) {
+  const query = roomId ? `?roomId=${encodeURIComponent(roomId)}` : "";
+  return apiFetch(`/api/admin/kiosk-devices${query}`);
+}
+
+export function createKioskDevice({ roomId, label } = {}) {
+  return apiFetch("/api/admin/kiosk-devices", {
+    method: "POST",
+    body: JSON.stringify({ roomId, label }),
+  });
+}
+
+export function revokeKioskDevice(deviceId) {
+  return apiFetch(`/api/admin/kiosk-devices/${deviceId}/revoke`, { method: "POST" });
+}
+
 export function getAuditLogs({ action, page = 1, limit = 50 } = {}) {
   const params = new URLSearchParams({ page: String(page), limit: String(limit) });
   if (action) params.set("action", action);
   return apiFetch(`/api/admin/audit-logs?${params.toString()}`);
+}
+
+export async function downloadAdminExport({ report, format, roomId, startDate, endDate }) {
+  const extension = String(format).toLowerCase() === "csv" ? "csv" : "xlsx";
+  const { blob, fileName } = await apiDownload("/api/admin/exports", {
+    method: "POST",
+    body: JSON.stringify({
+      report,
+      format,
+      roomId: roomId && roomId !== "all" ? roomId : "all",
+      startDate,
+      endDate,
+    }),
+    fileName: `kinof-${report}-${startDate}-${endDate}.${extension}`,
+  });
+  saveBlob(blob, fileName);
 }

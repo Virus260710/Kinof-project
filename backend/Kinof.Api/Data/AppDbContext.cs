@@ -14,6 +14,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Room> Rooms => Set<Room>();
     public DbSet<Seat> Seats => Set<Seat>();
     public DbSet<Agent> Agents => Set<Agent>();
+    public DbSet<KioskDevice> KioskDevices => Set<KioskDevice>();
     public DbSet<Schedule> Schedules => Set<Schedule>();
     public DbSet<ScheduleEnrollment> ScheduleEnrollments => Set<ScheduleEnrollment>();
     public DbSet<ScheduleEnrollmentPending> ScheduleEnrollmentPendings => Set<ScheduleEnrollmentPending>();
@@ -28,6 +29,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<AccessLog> AccessLogs => Set<AccessLog>();
     public DbSet<AgentLog> AgentLogs => Set<AgentLog>();
     public DbSet<WebsiteBlacklist> WebsiteBlacklist => Set<WebsiteBlacklist>();
+    public DbSet<ProgramBlacklist> ProgramBlacklist => Set<ProgramBlacklist>();
+    public DbSet<ProgramAllowlist> ProgramAllowlist => Set<ProgramAllowlist>();
+    public DbSet<BehaviorPenalty> BehaviorPenalties => Set<BehaviorPenalty>();
+    public DbSet<BehaviorReview> BehaviorReviews => Set<BehaviorReview>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -103,6 +108,16 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             entity.ToTable("agents");
             entity.HasIndex(x => x.SeatId).IsUnique();
             entity.HasOne<Seat>().WithOne().HasForeignKey<Agent>(x => x.SeatId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<KioskDevice>(entity =>
+        {
+            entity.ToTable("kiosk_devices");
+            entity.Property(x => x.ApiKey).HasMaxLength(255);
+            entity.Property(x => x.Label).HasMaxLength(100);
+            entity.HasIndex(x => x.ApiKey).IsUnique();
+            entity.HasIndex(x => x.RoomId);
+            entity.HasOne<Room>().WithMany().HasForeignKey(x => x.RoomId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<Schedule>(entity =>
@@ -232,8 +247,62 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<WebsiteBlacklist>(entity =>
         {
             entity.ToTable("website_blacklist");
+            entity.Property(x => x.UrlPattern).HasMaxLength(255);
+            entity.Property(x => x.Category).HasMaxLength(50);
+            entity.Property(x => x.Source).HasMaxLength(20);
             entity.HasIndex(x => x.UrlPattern).IsUnique();
+            entity.HasIndex(x => new { x.Source, x.Category });
             entity.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ProgramBlacklist>(entity =>
+        {
+            entity.ToTable("program_blacklist");
+            entity.Property(x => x.ProcessName).HasMaxLength(255);
+            entity.Property(x => x.Category).HasMaxLength(50);
+            entity.HasIndex(x => x.ProcessName).IsUnique();
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ProgramAllowlist>(entity =>
+        {
+            entity.ToTable("program_allowlist");
+            entity.Property(x => x.ProcessName).HasMaxLength(255);
+            entity.Property(x => x.DisplayName).HasMaxLength(120);
+            entity.Property(x => x.Category).HasMaxLength(50);
+            entity.HasIndex(x => x.ProcessName).IsUnique();
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.CreatedBy).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<BehaviorPenalty>(entity =>
+        {
+            entity.ToTable("behavior_penalties");
+            entity.Property(x => x.Reason).HasMaxLength(500);
+            entity.Property(x => x.Source).HasMaxLength(40);
+            entity.Property(x => x.SourceKey).HasMaxLength(200);
+            entity.HasIndex(x => x.SourceKey).IsUnique();
+            entity.HasIndex(x => new { x.UserId, x.CreatedAt });
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BehaviorReview>(entity =>
+        {
+            entity.ToTable("behavior_reviews");
+            entity.Property(x => x.DisplayName).HasMaxLength(120);
+            entity.Property(x => x.Username).HasMaxLength(50);
+            entity.Property(x => x.RoomName).HasMaxLength(100);
+            entity.Property(x => x.SeatLabel).HasMaxLength(40);
+            entity.Property(x => x.Kind).HasMaxLength(20);
+            entity.Property(x => x.Target).HasMaxLength(255);
+            entity.Property(x => x.Activity).HasMaxLength(500);
+            entity.Property(x => x.QueueKey).HasMaxLength(320);
+            entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+            entity.HasIndex(x => x.Status);
+            entity.HasIndex(x => x.QueueKey)
+                .IsUnique()
+                .HasFilter("status = 'Pending'");
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasOne<User>().WithMany().HasForeignKey(x => x.ReviewedBy).OnDelete(DeleteBehavior.SetNull);
         });
 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())

@@ -7,7 +7,7 @@ namespace Kinof.Api.Services;
 
 public sealed record TrackingUserResponse(string DisplayName, string? Username, string? UserType);
 
-public sealed record TrackingSessionResponse(TrackingUserResponse User, string StartedAt);
+public sealed record TrackingSessionResponse(TrackingUserResponse User, string StartedAt, bool HasActiveBooking);
 
 public sealed record TrackingActivityResponse(
     string Id,
@@ -22,7 +22,8 @@ public sealed record TrackingActivityResponse(
     int? DurationMinutes,
     bool Suspicious,
     string? Website,
-    string? Program);
+    string? Program,
+    Guid? UserId);
 
 public sealed record UpdateRoomStatusRequest(string? Status);
 
@@ -89,9 +90,8 @@ public sealed class TrackingService(AppDbContext db, AuditLogService auditLog)
             machinesTotal = openRoomSeats.Count,
             pendingHelpRequests,
             websitesToday = todayLogs.Count(log => log.EventType == AgentEventTypes.Website),
-            flaggedCount = todayLogs.Count(log =>
-                log.EventType == AgentEventTypes.Suspicious ||
-                (log.EventType == AgentEventTypes.Website && AgentLogPayload.Parse(log.DataJson).Suspicious))
+            flaggedCount = await db.BehaviorReviews.AsNoTracking()
+                .CountAsync(item => item.Status == BehaviorReviewStatus.Pending, cancellationToken)
         });
     }
 
@@ -138,6 +138,7 @@ public sealed class TrackingService(AppDbContext db, AuditLogService auditLog)
             .Where(agent => seatIds.Contains(agent.SeatId))
             .ToDictionaryAsync(agent => agent.SeatId, cancellationToken);
         var sessions = await GetOpenSessionsAsync(cancellationToken);
+        var liveBookings = await GetLiveBookingPairsAsync(cancellationToken);
 
         var response = seats.Select(seat =>
         {
@@ -155,7 +156,7 @@ public sealed class TrackingService(AppDbContext db, AuditLogService auditLog)
                 agentOnline = online,
                 agentRegistered = agent is not null,
                 lastHeartbeat = agent?.LastHeartbeat,
-                session = session is null ? null : ToSessionResponse(session)
+                session = session is null ? null : ToSessionResponse(session, seat.RoomId, liveBookings)
             };
         });
 
@@ -172,6 +173,7 @@ public sealed class TrackingService(AppDbContext db, AuditLogService auditLog)
         var (start, end) = BangkokDayRangeUtc(date);
 
         var query = ActivityQuery();
+        query = query.Where(row => row.Log.EventType != AgentEventTypes.UnknownProgram);
         if (roomId is Guid room)
             query = query.Where(row => row.Room.Id == room);
         if (start is not null && end is not null)
@@ -184,7 +186,9 @@ public sealed class TrackingService(AppDbContext db, AuditLogService auditLog)
             "program" => query.Where(row => row.Log.EventType == AgentEventTypes.Program),
             "website" => query.Where(row => row.Log.EventType == AgentEventTypes.Website),
             "flagged" => query.Where(row =>
-                row.Log.EventType == AgentEventTypes.Suspicious || row.Log.EventType == AgentEventTypes.Website),
+                row.Log.EventType == AgentEventTypes.Suspicious ||
+                row.Log.EventType == AgentEventTypes.Website ||
+                row.Log.EventType == AgentEventTypes.Program),
             _ => query
         };
 
@@ -202,11 +206,77 @@ public sealed class TrackingService(AppDbContext db, AuditLogService auditLog)
             return Results.NotFound(new { message = "ไม่พบเครื่องคอมพิวเตอร์" });
 
         var rows = await ProjectAsync(
-            ActivityQuery().Where(row => row.Seat.Id == seatId),
+            ActivityQuery().Where(row =>
+                row.Seat.Id == seatId && row.Log.EventType != AgentEventTypes.UnknownProgram),
             Math.Clamp(limit, 1, MaxActivityRows),
             cancellationToken);
 
         return Results.Ok(rows.Select(ToActivityResponse).ToArray());
+    }
+
+    public async Task<IResult> GetUnknownProgramsAsync(
+        Guid? roomId,
+        string? date,
+        CancellationToken cancellationToken)
+    {
+        var (start, end) = BangkokDayRangeUtc(date);
+        var query =
+            from log in db.AgentLogs.AsNoTracking()
+            join agent in db.Agents.AsNoTracking() on log.AgentId equals agent.Id
+            join seat in db.Seats.AsNoTracking() on agent.SeatId equals seat.Id
+            where log.EventType == AgentEventTypes.UnknownProgram
+            select new { log, agent, seat };
+
+        if (roomId is Guid room)
+            query = query.Where(row => row.seat.RoomId == room);
+        if (start is not null && end is not null)
+            query = query.Where(row => row.log.CreatedAt >= start.Value && row.log.CreatedAt < end.Value);
+
+        var rows = await query
+            .OrderByDescending(row => row.log.CreatedAt)
+            .Take(8000)
+            .Select(row => new
+            {
+                row.log.DataJson,
+                row.log.CreatedAt,
+                AgentId = row.agent.Id
+            })
+            .ToListAsync(cancellationToken);
+
+        var allowed = (await db.ProgramAllowlist.AsNoTracking()
+            .Select(entry => entry.ProcessName)
+            .ToListAsync(cancellationToken)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var blocked = (await db.ProgramBlacklist.AsNoTracking()
+            .Select(entry => entry.ProcessName)
+            .ToListAsync(cancellationToken)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var items = rows
+            .Select(row =>
+            {
+                var payload = AgentLogPayload.Parse(row.DataJson);
+                var name = ProgramBlacklistService.Normalize(payload.Program);
+                return new { name, row.CreatedAt, row.AgentId };
+            })
+            .Where(row =>
+                !string.IsNullOrWhiteSpace(row.name) &&
+                !allowed.Contains(row.name) &&
+                !blocked.Contains(row.name))
+            .GroupBy(row => row.name!, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new
+            {
+                processName = group.Key,
+                occurrenceCount = group.Count(),
+                machineCount = group.Select(item => item.AgentId).Distinct().Count(),
+                firstSeenAt = FormatBangkok(group.Min(item => item.CreatedAt)),
+                lastSeenAt = FormatBangkok(group.Max(item => item.CreatedAt))
+            })
+            .OrderByDescending(item => item.occurrenceCount)
+            .ThenByDescending(item => item.machineCount)
+            .ThenBy(item => item.processName)
+            .Take(200)
+            .ToList();
+
+        return Results.Ok(items);
     }
 
     // --------------------------------------------------------------- writes
@@ -323,12 +393,22 @@ public sealed class TrackingService(AppDbContext db, AuditLogService auditLog)
             return Results.NotFound(new { message = "ไม่พบเครื่องคอมพิวเตอร์" });
 
         var agent = await db.Agents.SingleOrDefaultAsync(x => x.SeatId == seatId, cancellationToken);
-        if (agent is null)
-            return Results.Conflict(new { message = "เครื่องนี้ยังไม่ได้ติดตั้ง Agent" });
-
         var sessions = await GetOpenSessionsAsync(cancellationToken);
         var session = sessions.GetValueOrDefault(seatId);
-        QueueLogout(agent, session, "admin");
+        var now = DateTime.UtcNow;
+
+        if (agent is not null && !AgentService.IsOnline(agent.LastHeartbeat, now))
+        {
+            return Results.Json(
+                new { message = "Agent ของเครื่องนี้ออฟไลน์ สั่งออกจากระบบไม่ได้ กรุณาเปิด Agent ก่อน — ปล่อยที่นั่งจากเซิร์ฟเวอร์ได้เฉพาะเครื่องที่ยังไม่ได้ติดตั้ง Agent" },
+                statusCode: StatusCodes.Status409Conflict);
+        }
+
+        // No Agent installed: still free Occupied in the database.
+        // Agent online: close the derived session so the machine UI signs out too.
+        if (agent is not null)
+            QueueLogout(agent, session, "admin");
+
         seat.Status = SeatStatus.Available;
 
         await db.SaveChangesAsync(cancellationToken);
@@ -340,7 +420,12 @@ public sealed class TrackingService(AppDbContext db, AuditLogService auditLog)
             $"{SeatLabel(seat.SeatNumber)} ({session?.Payload.Username ?? "ไม่มีผู้ใช้"})",
             cancellationToken);
 
-        return Results.Ok(new { seatId = seat.Id, hadSession = session is not null });
+        return Results.Ok(new
+        {
+            seatId = seat.Id,
+            hadSession = session is not null,
+            agentRegistered = agent is not null
+        });
     }
 
     // ----------------------------------------------------- agent management
@@ -477,8 +562,8 @@ public sealed class TrackingService(AppDbContext db, AuditLogService auditLog)
     public static string GetSeatUiStatus(Seat seat, Agent? agent, Room room, bool hasSession, DateTime nowUtc)
     {
         if (room.Status == RoomStatus.Maintenance) return "maintenance";
-        if (!AgentService.IsOnline(agent?.LastHeartbeat, nowUtc)) return "offline";
         if (hasSession || seat.Status == SeatStatus.Occupied) return "in_use";
+        if (!AgentService.IsOnline(agent?.LastHeartbeat, nowUtc)) return "offline";
         return "available";
     }
 
@@ -569,9 +654,44 @@ public sealed class TrackingService(AppDbContext db, AuditLogService auditLog)
         return seatIds.ToHashSet();
     }
 
-    private static TrackingSessionResponse ToSessionResponse(SeatSession session) => new(
-        ToUserResponse(session.Payload) ?? new TrackingUserResponse("ผู้ใช้งาน", null, null),
-        FormatBangkok(session.StartedAtUtc));
+    private async Task<HashSet<(Guid UserId, Guid RoomId)>> GetLiveBookingPairsAsync(
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var blocking = new[] { BookingStatus.Confirmed, BookingStatus.Pending };
+        var owners = await db.Bookings.AsNoTracking()
+            .Where(booking =>
+                blocking.Contains(booking.Status) &&
+                booking.StartTime <= now &&
+                booking.EndTime > now)
+            .Select(booking => new { booking.UserId, booking.RoomId })
+            .ToListAsync(cancellationToken);
+        var members = await (
+            from member in db.GroupMembers.AsNoTracking()
+            join groupRow in db.BookingGroups.AsNoTracking() on member.GroupId equals groupRow.Id
+            join booking in db.Bookings.AsNoTracking() on groupRow.BookingId equals booking.Id
+            where blocking.Contains(booking.Status) && booking.StartTime <= now && booking.EndTime > now
+            select new { member.UserId, booking.RoomId }
+        ).ToListAsync(cancellationToken);
+
+        return owners
+            .Concat(members)
+            .Select(item => (item.UserId, item.RoomId))
+            .ToHashSet();
+    }
+
+    private static TrackingSessionResponse ToSessionResponse(
+        SeatSession session,
+        Guid roomId,
+        HashSet<(Guid UserId, Guid RoomId)> liveBookings)
+    {
+        var userId = session.Payload.UserId;
+        var hasActiveBooking = userId is Guid id && liveBookings.Contains((id, roomId));
+        return new(
+            ToUserResponse(session.Payload) ?? new TrackingUserResponse("ผู้ใช้งาน", null, null),
+            FormatBangkok(session.StartedAtUtc),
+            hasActiveBooking);
+    }
 
     private static TrackingUserResponse? ToUserResponse(AgentLogPayload payload)
     {
@@ -604,14 +724,17 @@ public sealed class TrackingService(AppDbContext db, AuditLogService auditLog)
             payload.DurationMinutes,
             payload.Suspicious,
             payload.Website,
-            payload.Program);
+            payload.Program,
+            payload.UserId);
     }
 
-    private static string DescribeActivity(string eventType, AgentLogPayload payload) => eventType switch
+    public static string DescribeActivity(string eventType, AgentLogPayload payload) => eventType switch
     {
         AgentEventTypes.Login => "เข้าสู่ระบบ",
         AgentEventTypes.Logout => payload.Source is null ? "ออกจากระบบ" : "ออกจากระบบ (โดยผู้ดูแล)",
-        AgentEventTypes.Program => $"เปิด {payload.Program ?? "โปรแกรม"}",
+        AgentEventTypes.Program => payload.Suspicious
+            ? $"บล็อก {payload.Program ?? "โปรแกรม"}"
+            : $"เปิด {payload.Program ?? "โปรแกรม"}",
         AgentEventTypes.Website => $"เข้าเว็บไซต์ {payload.Website ?? "-"}",
         AgentEventTypes.Suspicious => payload.Activity ?? "กิจกรรมน่าสงสัย",
         _ => payload.Activity ?? eventType

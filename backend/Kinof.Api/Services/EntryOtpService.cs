@@ -136,28 +136,29 @@ public sealed class EntryOtpService(
         });
         await db.SaveChangesAsync(cancellationToken);
 
-        var deliveryMode = "failed";
+        EmailDeliveryResult delivery;
         try
         {
-            var delivery = await emailSender.SendEntryOtpAsync(
+            delivery = await emailSender.SendEntryOtpAsync(
                 user.Email,
                 user.FirstName,
                 code,
                 roomName,
                 cancellationToken);
-            deliveryMode = delivery.Mode;
-            logger.LogInformation(
-                "Entry OTP delivery mode for {MaskedEmail}: {Mode}",
-                MaskEmail(user.Email),
-                delivery.Mode);
         }
-        catch (Exception exception)
+        catch (EmailDeliveryException exception)
         {
             logger.LogError(
                 exception,
                 "Entry OTP email delivery failed for {MaskedEmail}",
                 MaskEmail(user.Email));
+            return EmailDelivery.FailedResult();
         }
+
+        logger.LogInformation(
+            "Entry OTP delivery mode for {MaskedEmail}: {Mode}",
+            MaskEmail(user.Email),
+            delivery.Mode);
 
         var quota = await GetMonthlyQuotaAsync(user.Id, now, cancellationToken);
         return Results.Ok(new
@@ -167,7 +168,7 @@ public sealed class EntryOtpService(
             expiresAt = now.AddMinutes(10),
             roomId,
             roomName,
-            deliveryMode,
+            deliveryMode = delivery.Mode,
             monthlyUsed = quota.Used,
             monthlyLimit = quota.Limit,
             monthlyRemaining = quota.Remaining

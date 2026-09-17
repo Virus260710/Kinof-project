@@ -40,6 +40,63 @@ public static class TrackingEndpoints
                 ? service.GetSummaryAsync(cancellationToken)
                 : Task.FromResult(Results.Forbid()));
 
+        admin.MapGet("/behavior/reviews", (
+            Guid? roomId,
+            ClaimsPrincipal user,
+            BehaviorScoreService service,
+            CancellationToken cancellationToken) =>
+            StaffAuth.IsStaff(user)
+                ? service.ListReviewsAsync(roomId, cancellationToken)
+                : Task.FromResult(Results.Forbid()));
+
+        admin.MapPost("/behavior/reviews/{reviewId:guid}/clear", (
+            Guid reviewId,
+            ClaimsPrincipal user,
+            BehaviorScoreService service,
+            CancellationToken cancellationToken) =>
+        {
+            var actorId = AuthService.GetUserId(user);
+            if (actorId is null) return Task.FromResult(Results.Unauthorized());
+            if (!StaffAuth.IsStaff(user)) return Task.FromResult(Results.Forbid());
+            return service.ClearReviewAsync(actorId.Value, reviewId, cancellationToken);
+        });
+
+        admin.MapPost("/behavior/reviews/{reviewId:guid}/penalize", (
+            Guid reviewId,
+            ClaimsPrincipal user,
+            BehaviorScoreService service,
+            CancellationToken cancellationToken) =>
+        {
+            var actorId = AuthService.GetUserId(user);
+            if (actorId is null) return Task.FromResult(Results.Unauthorized());
+            if (!StaffAuth.IsStaff(user)) return Task.FromResult(Results.Forbid());
+            return service.PenalizeReviewAsync(actorId.Value, reviewId, cancellationToken);
+        });
+
+        admin.MapPost("/behavior/block", (
+            BlockFlaggedRequest request,
+            ClaimsPrincipal user,
+            BehaviorScoreService service,
+            CancellationToken cancellationToken) =>
+        {
+            var actorId = AuthService.GetUserId(user);
+            if (actorId is null) return Task.FromResult(Results.Unauthorized());
+            if (!StaffAuth.IsStaff(user)) return Task.FromResult(Results.Forbid());
+            return service.BlockFromActivityAsync(actorId.Value, request, cancellationToken);
+        });
+
+        admin.MapPost("/behavior/clear", (
+            BlockFlaggedRequest request,
+            ClaimsPrincipal user,
+            BehaviorScoreService service,
+            CancellationToken cancellationToken) =>
+        {
+            var actorId = AuthService.GetUserId(user);
+            if (actorId is null) return Task.FromResult(Results.Unauthorized());
+            if (!StaffAuth.IsStaff(user)) return Task.FromResult(Results.Forbid());
+            return service.ClearFromActivityAsync(actorId.Value, request, cancellationToken);
+        });
+
         tracking.MapGet("/rooms", (
             ClaimsPrincipal user,
             TrackingService service,
@@ -147,5 +204,111 @@ public static class TrackingEndpoints
             if (!StaffAuth.IsStaff(user)) return Task.FromResult(Results.Forbid());
             return service.RemoveAsync(actorId.Value, id, cancellationToken);
         });
+
+        tracking.MapGet("/program-blacklist", (
+            ClaimsPrincipal user,
+            ProgramBlacklistService service,
+            CancellationToken cancellationToken) =>
+            StaffAuth.IsStaff(user)
+                ? service.ListAsync(cancellationToken)
+                : Task.FromResult(Results.Forbid()));
+
+        tracking.MapPost("/program-blacklist", (
+            AddProgramBlacklistRequest request,
+            ClaimsPrincipal user,
+            ProgramBlacklistService service,
+            CancellationToken cancellationToken) =>
+        {
+            var actorId = AuthService.GetUserId(user);
+            if (actorId is null) return Task.FromResult(Results.Unauthorized());
+            if (!StaffAuth.IsStaff(user)) return Task.FromResult(Results.Forbid());
+            return service.AddAsync(actorId.Value, request, cancellationToken);
+        });
+
+        tracking.MapDelete("/program-blacklist/{id:int}", (
+            int id,
+            ClaimsPrincipal user,
+            ProgramBlacklistService service,
+            CancellationToken cancellationToken) =>
+        {
+            var actorId = AuthService.GetUserId(user);
+            if (actorId is null) return Task.FromResult(Results.Unauthorized());
+            if (!StaffAuth.IsStaff(user)) return Task.FromResult(Results.Forbid());
+            return service.RemoveAsync(actorId.Value, id, cancellationToken);
+        });
+
+        tracking.MapGet("/website-blacklist/categories", (
+            ClaimsPrincipal user,
+            Ut1WebsiteCategoryService service,
+            CancellationToken cancellationToken) =>
+            StaffAuth.IsStaff(user)
+                ? service.ListCategoriesAsync(cancellationToken)
+                : Task.FromResult(Results.Forbid()));
+
+        tracking.MapPost("/website-blacklist/import", (
+            ImportUt1CategoryRequest request,
+            ClaimsPrincipal user,
+            Ut1WebsiteCategoryService service,
+            CancellationToken cancellationToken) =>
+        {
+            var actorId = AuthService.GetUserId(user);
+            if (actorId is null) return Task.FromResult(Results.Unauthorized());
+            if (!StaffAuth.IsStaff(user)) return Task.FromResult(Results.Forbid());
+            return service.ImportAsync(actorId.Value, request, cancellationToken);
+        });
+
+        tracking.MapDelete("/website-blacklist/categories/{category}", (
+            string category,
+            ClaimsPrincipal user,
+            Ut1WebsiteCategoryService service,
+            CancellationToken cancellationToken) =>
+        {
+            var actorId = AuthService.GetUserId(user);
+            if (actorId is null) return Task.FromResult(Results.Unauthorized());
+            if (!StaffAuth.IsStaff(user)) return Task.FromResult(Results.Forbid());
+            return service.RemoveCategoryAsync(actorId.Value, category, cancellationToken);
+        });
+
+        tracking.MapGet("/program-allowlist", (
+            ClaimsPrincipal user,
+            ProgramAllowlistService service,
+            CancellationToken cancellationToken) =>
+            StaffAuth.IsStaff(user)
+                ? service.ListAsync(cancellationToken)
+                : Task.FromResult(Results.Forbid()));
+
+        tracking.MapPost("/program-allowlist", (
+            AddProgramAllowlistRequest request,
+            ClaimsPrincipal user,
+            ProgramAllowlistService service,
+            CancellationToken cancellationToken) =>
+        {
+            var actorId = AuthService.GetUserId(user);
+            if (actorId is null) return Task.FromResult(Results.Unauthorized());
+            if (!StaffAuth.IsStaff(user)) return Task.FromResult(Results.Forbid());
+            return service.AddAsync(actorId.Value, request, cancellationToken);
+        });
+
+        tracking.MapDelete("/program-allowlist/{id:int}", (
+            int id,
+            ClaimsPrincipal user,
+            ProgramAllowlistService service,
+            CancellationToken cancellationToken) =>
+        {
+            var actorId = AuthService.GetUserId(user);
+            if (actorId is null) return Task.FromResult(Results.Unauthorized());
+            if (!StaffAuth.IsStaff(user)) return Task.FromResult(Results.Forbid());
+            return service.RemoveAsync(actorId.Value, id, cancellationToken);
+        });
+
+        tracking.MapGet("/unknown-programs", (
+            Guid? roomId,
+            string? date,
+            ClaimsPrincipal user,
+            TrackingService service,
+            CancellationToken cancellationToken) =>
+            StaffAuth.IsStaff(user)
+                ? service.GetUnknownProgramsAsync(roomId, date, cancellationToken)
+                : Task.FromResult(Results.Forbid()));
     }
 }

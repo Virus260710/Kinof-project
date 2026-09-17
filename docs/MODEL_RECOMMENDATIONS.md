@@ -22,7 +22,10 @@
 
 ### Website Blocking
 - **hosts file** redirect ไป `127.0.0.1` — ไม่ต้อง proxy
-- Admin ส่ง blacklist ผ่าน API → Agent sync ทุก 5 นาที
+- Admin ส่ง blacklist ผ่าน API → Agent sync hosts และรายการโปรแกรมตามรอบที่ตั้งไว้
+- **แผน:** เว็บห้ามตามหมวดจาก [UT1](https://dsi.ut-capitole.fr/blacklists/index_en.php) ไม่ทำ allowlist ทั้งเว็บ ไม่ใช้ AI จัดหมวด ไม่เททั้งไฟล์ลง hosts — **ทำแล้ว:** แอดมินเลือกหมวดแล้วระบบนำเข้าโดเมนจำกัดจำนวนต่อหมวด ซิงค์ `website_blacklist.category`
+- **บล็อกโปรแกรม:** ตาราง `program_blacklist` + หน้า Monitor — Agent ดึงตาม heartbeat แล้วปิด process ที่ตรง `process_name` (ไม่ปิดเครื่อง / ไม่ปิดตัว Agent / ไม่ปิด process ระบบ)
+- **แผนโปรแกรม:** รายการอนุญาตของแล็บ + สรุปของที่ไม่รู้จัก ไม่ขึ้นคิวทีละคลิก — **ทำแล้ว:** `program_allowlist` + แท็บ Monitor ไม่รู้จัก
 
 ### Data Storage
 - **Backend dev:** SQLite + EF Core

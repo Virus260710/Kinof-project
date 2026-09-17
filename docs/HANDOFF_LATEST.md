@@ -1,11 +1,12 @@
 # Handoff ล่าสุด — KINOF Phase 3C (Kiosk Face entry) — Phase 3 ครบแล้ว
 
-> อัปเดต: 7 ก.ย. 2569
+> อัปเดต: 17 ก.ย. 2569
 > Workspace: `C:\Users\User\Desktop\Kinof-project`
 > GitHub: https://github.com/Virus260710/Kinof-project.git
-> Branch: `cursor/phase0-backend-email-otp` (HEAD ก่อน 3A: `9d16ead` — pushed)
-> **อย่า commit/push จนกว่า user จะสั่ง** — งาน 3A + 3B + 3C ยังอยู่ใน working tree
-> พร้อม commit เป็นก้อนเดียว: Entry OTP (3A) + Kiosk OTP entry (3B) + Kiosk Face entry (3C)
+> Branch: `cursor/phase0-backend-email-otp`
+> **อย่า commit/push จนกว่า user จะสั่ง**
+> เฝ้าเว็บ/โปรแกรมตามนโยบายแล้ว: นำเข้าหมวด UT1 (จำกัดโดเมนต่อหมวด) · รายการโปรแกรมที่อนุญาตในแล็บ · สรุปโปรแกรมที่ไม่รู้จัก ไม่ขึ้นคิว Monitor ทีละแถว
+> Kiosk ประตูใช้ `X-Kiosk-Key` ผูกห้อง (แนวเดียวกับ `X-Agent-Key` ที่ผูกที่นั่ง) — ไม่จ่ายที่นั่งที่ประตู
 
 ---
 
@@ -25,7 +26,7 @@
 | **GET /api/bookings/me**, **POST /api/bookings** | ✅ |
 | **GET/accept/decline Invitation API + user search** | ✅ |
 | **Problem Reports API (user/admin/status/images)** | ✅ |
-| Email OTP (MailKit + console fallback) | ✅ |
+| Email OTP (MailKit SMTP จริง + console fallback เฉพาะ Development) | ✅ |
 | JWT + refresh token | ✅ |
 | DbSeeder: student/admin + ห้องแล็บ 1-4 | ✅ |
 | Superadmin 3 คน + Admin/Schedule/Room CRUD + Excel import | ✅ |
@@ -34,10 +35,16 @@
 | Admin audit log 90 วัน | ✅ |
 | **Entry OTP request/resend/active (email, JWT)** | ✅ Phase 3A |
 | **Kiosk API สาธารณะ: ข้อมูลห้อง + verify entry OTP** | ✅ Phase 3B |
+| **Kiosk device auth: `X-Kiosk-Key` ผูกห้อง (สร้าง/เพิกถอนโดยแอดมิน)** | ✅ |
 | **EntryService: ตรวจสิทธิ์ (schedule/booking) → assign seat → `access_logs`** | ✅ Phase 3B |
 | **Rate limit Kiosk: ล้มเหลว 5 ครั้ง / 15 นาที ต่อห้อง แยก scope `otp` / `face`** | ✅ Phase 3B/3C |
 | **FaceMatchingService: identify 1:N ด้วย cosine similarity (threshold 0.5)** | ✅ Phase 3C |
 | **Kiosk API สาธารณะ: verify-face → EntryService (`AuthMethod.Face`)** | ✅ Phase 3C |
+| **POST /api/admin/exports** | ✅ Excel/CSV จาก `agent_logs` ตามช่วงวันที่กรุงเทพ |
+| **GET /api/behavior** | ✅ คะแนน 100 · no-show หักอัตโนมัติ · flagged รอแอดมินตรวจก่อนหัก |
+| **นำเข้าหมวดเว็บ UT1** | ✅ แอดมินเลือกหมวด → โดเมนเข้า `website_blacklist.category` · จำกัด 250/หมวด (สูงสุด 400) |
+| **รายการโปรแกรมที่อนุญาต** | ✅ ตาราง `program_allowlist` + หน้า Monitor |
+| **สรุปโปรแกรมที่ไม่รู้จัก** | ✅ Agent ส่ง `unknown_program` รวมครั้ง/เครื่อง — ไม่ขึ้นคิวน่าสงสัย ไม่หักคะแนน |
 | Port: **`http://localhost:5106`** | ✅ |
 
 **Endpoints ทั้งหมด:**
@@ -56,9 +63,9 @@ POST /api/auth/register/face         [JWT]
 POST /api/auth/entry-otp/request     [JWT]
 POST /api/auth/entry-otp/resend      [JWT]
 GET  /api/auth/entry-otp/active      [JWT]
-GET  /api/kiosk/rooms/{roomId}       [public — Kiosk]
-POST /api/kiosk/entry/verify-otp     [public — Kiosk]
-POST /api/kiosk/entry/verify-face    [public — Kiosk]
+GET  /api/kiosk/rooms/{roomId}       [X-Kiosk-Key ผูกห้อง]
+POST /api/kiosk/entry/verify-otp     [X-Kiosk-Key ผูกห้อง]
+POST /api/kiosk/entry/verify-face    [X-Kiosk-Key ผูกห้อง]
 GET  /api/rooms                      [JWT]
 GET  /api/rooms/available            [JWT]
 GET  /api/bookings/me                [JWT]
@@ -74,6 +81,11 @@ GET  /api/problem-reports/{id}       [JWT]
 PATCH /api/problem-reports/{id}/status [JWT, admin]
 GET  /api/problem-reports/{id}/images/{imageId} [JWT]
 GET  /api/schedule/me                [JWT]
+GET  /api/behavior                   [JWT] คะแนนพฤติกรรม + ประวัติหักคะแนน
+GET  /api/nav-badges                 [JWT] จำนวนค้างบน Sidebar
+GET  /api/admin/behavior/reviews     [JWT, admin+] คิวต้องสงสัยรอตรวจ
+POST /api/admin/behavior/reviews/{id}/clear    [JWT, admin+] ดี — ไม่หัก
+POST /api/admin/behavior/reviews/{id}/penalize [JWT, admin+] แย่ — บล็อกแล้วหัก
 GET  /api/admin/users                [JWT, superadmin]
 POST /api/admin/users                [JWT, superadmin]
 PUT  /api/admin/users/{id}           [JWT, superadmin]
@@ -82,10 +94,25 @@ POST /api/admin/users/{id}/enable    [JWT, superadmin]
 POST /api/admin/users/{id}/resend-invite [JWT, superadmin]
 GET  /api/admin/audit-logs           [JWT, superadmin]
 GET/POST/PUT/DELETE /api/admin/rooms [JWT, admin+]
+GET/POST /api/admin/kiosk-devices    [JWT, admin+]  สร้างได้ apiKey ครั้งเดียว
+POST /api/admin/kiosk-devices/{id}/revoke [JWT, admin+]
 GET/POST/PUT/DELETE /api/admin/schedules [JWT, admin+]
 POST /api/admin/schedules/import/preview [JWT, admin+]
 POST /api/admin/schedules/import/confirm [JWT, admin+]
 GET  /api/admin/schedules/template   [JWT, admin+]
+GET  /api/admin/dashboard            [JWT, admin+]
+GET  /api/admin/tracking/summary|rooms|seats|activity [JWT, admin+]
+POST /api/admin/exports              [JWT, admin+]  Excel/CSV ตามช่วงวันที่กรุงเทพ
+GET/POST/DELETE /api/admin/tracking/website-blacklist [JWT, admin+]
+GET  /api/admin/tracking/website-blacklist/categories [JWT, admin+] หมวด UT1 + จำนวนที่นำเข้า
+POST /api/admin/tracking/website-blacklist/import [JWT, admin+] นำเข้าโดเมนหมวด UT1 (จำกัดต่อหมวด)
+DELETE /api/admin/tracking/website-blacklist/categories/{category} [JWT, admin+] นำหมวด UT1 ออก
+GET/POST/DELETE /api/admin/tracking/program-blacklist [JWT, admin+]
+GET/POST/DELETE /api/admin/tracking/program-allowlist [JWT, admin+]
+GET  /api/admin/tracking/unknown-programs [JWT, admin+] สรุปโปรแกรมที่ไม่รู้จัก
+POST /api/agent/register | heartbeat | logs          [X-Agent-Key]
+GET  /api/agent/website-blacklist | program-blacklist | program-allowlist [X-Agent-Key]
+POST /api/agent/session/login | verify-otp | resend-otp | logout [X-Agent-Key]
 ```
 
 ### Frontend — `kinof-app/`
@@ -101,16 +128,36 @@ GET  /api/admin/schedules/template   [JWT, admin+]
 | **Invitation → API จริง (ค้นหาผู้ใช้/ตอบรับ/ปฏิเสธ)** | ✅ |
 | **UserHelp + AdminHelpCenter → Problem Reports API** | ✅ |
 | UserHome/Profile แสดงข้อมูลจาก auth | ✅ |
-| App shell เป็นเจ้าของ TopBar/Sidebar/auth/booking state | ✅ |
+| **Sidebar ป้ายจำนวนค้าง (คำเชิญ / Monitor / ศูนย์ปัญหา)** | ✅ |
 | **Entry OTP หน้า `/entry-otp` + sidebar user + การ์ดหน้าหลัก/โปรไฟล์** | ✅ Phase 3A |
 | **Kiosk `/kiosk/:roomId` — fullscreen นอก shell, ไม่ต้อง login (OTP path)** | ✅ Phase 3B |
+| **Kiosk ส่ง `X-Kiosk-Key` จาก localStorage / `?key=` ครั้งแรก ไม่กรอกบนจอสแกน** | ✅ |
 | **Kiosk สแกนใบหน้า: กล้อง + auto-capture ไม่ต้องกระพริบตา → verify-face** | ✅ Phase 3C |
 | **Kiosk fallback: สแกนไม่ผ่าน 3 ครั้ง → ไปหน้า OTP อัตโนมัติ** | ✅ Phase 3C |
 | Display name และ booking slots ใช้ source กลาง | ✅ |
 | จัดการข้อมูล: ตารางเรียน / ห้อง / ผู้ดูแล (superadmin) + import Excel | ✅ |
+| **จัดการข้อมูล → ห้องแล็บ: สร้าง/เพิกถอนอุปกรณ์ Kiosk ต่อห้อง (apiKey ครั้งเดียว)** | ✅ |
 | Profile ตารางเรียน + BookRoom ติดเรียน จาก `GET /api/schedule/me` | ✅ |
 | Log แอดมิน (superadmin only) | ✅ |
-| Admin Dashboard/Monitor/Export | ⚠️ บางส่วนยัง mock พร้อม TODO(backend) |
+| Admin Dashboard / Monitor / Tracking | ✅ |
+| **Admin Export → Excel/CSV ไฟล์จริงจาก `POST /api/admin/exports`** | ✅ |
+| **คะแนนพฤติกรรมที่โปรไฟล์จาก `GET /api/behavior`** | ✅ |
+| **Monitor แท็บน่าสงสัย → แอดมินกด ดี/แย่** | ✅ |
+| **Monitor นำเข้าหมวด UT1 / อนุญาตโปรแกรม / สรุปไม่รู้จัก** | ✅ |
+
+### Windows Agent — `windows-agent/`
+
+| รายการ | สถานะ |
+|--------|--------|
+| Heartbeat + ล็อกอินบัญชี KINOF + OTP + ออกจากระบบเครื่องนี้ | ✅ |
+| ที่นั่ง Occupied เมื่อ login บน Agent — Kiosk ไม่จ่ายที่นั่ง | ✅ |
+| ซ่อนถาดระบบ (ปิดหน้าต่างแล้วยังทำงาน) | ✅ |
+| บล็อกเว็บผ่าน hosts จาก `website_blacklist` | ✅ |
+| นำเข้าหมวด UT1 แล้วซิงค์ `category` (จำกัดโดเมนต่อหมวด ไม่เททั้งไฟล์) | ✅ |
+| บล็อกโปรแกรมจาก `program_blacklist` — ดึงตาม heartbeat แล้วปิด process ที่ตรงชื่อ | ✅ |
+| รายการอนุญาต `program_allowlist` จาก heartbeat — ของไม่รู้จักส่งสรุป `unknown_program` | ✅ |
+| ไม่ปิดเครื่อง / ไม่ปิดตัว Agent / ไม่ปิด process ระบบ Windows | ✅ |
+| ส่ง `POST /api/agent/logs` event `program` ให้ Monitor เห็นการบล็อก | ✅ |
 
 ---
 
@@ -129,6 +176,10 @@ npm run dev
 # Terminal 3 — Face Service (จำเป็นเมื่อต้อง enroll ใบหน้า หรือสแกนหน้าที่ Kiosk)
 cd C:\Users\User\Desktop\Kinof-project\face-service
 py -3.11 -m uvicorn app.main:app --host 0.0.0.0 --port 8001
+
+# Terminal 4 — Windows Agent (Run as administrator)
+cd C:\Users\User\Desktop\Kinof-project\windows-agent
+dotnet run
 ```
 
 > dependency ของ face-service ติดตั้งไว้ที่ **Python 3.11 global** — `.venv` ในโฟลเดอร์นั้นยังว่าง
@@ -139,7 +190,7 @@ py -3.11 -m uvicorn app.main:app --host 0.0.0.0 --port 8001
 ### ผล smoke test Phase 3B (7 ก.ย. 2569)
 
 - `dotnet build` ผ่าน (0 warnings / 0 errors) และ `npm run build` ผ่าน
-- `GET /api/kiosk/rooms/{id}` คืน `{ id, name, building, status }` โดยไม่ต้องมี JWT; guid ที่ไม่มี → 404
+- `GET /api/kiosk/rooms/{id}` คืน `{ id, name, building, status }` เมื่อมี `X-Kiosk-Key` ของห้องนั้น; guid ที่ไม่มี → 404; คีย์ผิด/ห้องอื่น/ถูกเพิกถอน → 401
 - Enroll `student` ในคาบที่กำลังเรียน (สร้างผ่าน `POST /api/admin/schedules`) → ขอ entry OTP → กรอกที่ Kiosk → **granted** พร้อม `seatNumber=1`, `seatLabel="คอม 01"`, `computerName="PC-LAB-A-01"`
 - กรอก OTP เดิมซ้ำ → denied (one-time use ทำงาน)
 - `admin` ที่ไม่มีตารางเรียน/การจอง → denied `"ไม่มีตารางเรียนหรือการจองห้องนี้ในช่วงเวลานี้"`
@@ -168,12 +219,17 @@ py -3.11 -m uvicorn app.main:app --host 0.0.0.0 --port 8001
 ### ทดสอบ Login → OTP
 
 1. Login ด้วย `student` / `Student123!` หรือ `admin` / `Admin123!` หรือ superadmin `superadmin1` / `SuperAdmin123!`
-2. ถ้า **ไม่ตั้ง SMTP password** → OTP แสดงใน **console backend**
-3. ถ้าตั้ง SMTP แล้ว → OTP ส่งไปอีเมลจริง
-4. หลัง OTP สำเร็จ → user ไป `/register/face` ถ้ายังไม่ลงทะเบียนใบหน้า
-5. จองห้องต้องเรียก `GET /api/rooms/available` และ `POST /api/bookings` จริง
-6. Login admin ต้องมี TopBar เพียงชั้นเดียว
-7. ตรวจ build ด้วย `npm run build`
+2. SMTP ใช้ **Resend** ผ่าน user-secrets ของ `Kinof.Api` (`smtp.resend.com` / username `resend` / API key เป็น `Email:Password`) — **ห้ามใส่รหัสใน appsettings ที่ commit และอย่า set Password ซ้ำถ้าใส่แล้ว**
+3. `onboarding@resend.dev` ส่งได้เฉพาะเมลเจ้าของบัญชี Resend — ชี้ `Seed:StudentEmail` ไปเมลนั้นถ้าจะทดสอบ inbox ของ `student`
+4. ถ้ามี host+user+password และส่งสำเร็จ → OTP ไปอีเมลจริง (`deliveryMode = smtp`, หน้าเว็บไม่โชว์ `devOtp`)
+4. **Development** ถ้ายังไม่มี password หรือ SMTP ล้ม → log OTP/ลิงก์ใน console backend (`deliveryMode = console`)
+5. **Production** ถ้าไม่มี password หรือ SMTP ล้ม → HTTP 503 ไม่แอบสำเร็จ
+6. หลัง OTP สำเร็จ → user ไป `/register/face` ถ้ายังไม่ลงทะเบียนใบหน้า
+7. จองห้องต้องเรียก `GET /api/rooms/available` และ `POST /api/bookings` จริง
+8. Login admin ต้องมี TopBar เพียงชั้นเดียว
+9. ตรวจ build ด้วย `npm run build`
+
+รายละเอียด Resend + user-secrets: `docs/EMAIL_OTP.md` และ `docs/TEAM_SETUP.md`
 
 ### Face enrollment
 
@@ -188,13 +244,53 @@ py -3.11 -m uvicorn app.main:app --host 0.0.0.0 --port 8001
 
 ## สิ่งที่ยังไม่ทำ
 
-| ลำดับ | งาน |
-|-------|-----|
-| 1 | ออกจากห้อง / คืนที่นั่ง (ตอนนี้ seat ค้าง `Occupied` จนกว่า agent จะส่ง `logout`) ← ถัดไป |
-| 2 | Admin Export API |
-| 3 | Tracking Agent Windows (หลัง API พร้อม) |
-| 4 | ระบบหักคะแนนพฤติกรรม (หลัง Agent + no-show) |
-| 5 | Kiosk API key / device auth (ตอนนี้ endpoint สาธารณะ + rate limit ต่อห้อง) |
+ไม่มีงานฟีเจอร์หลักค้างแล้ว
+
+### ลำดับงานถัดไป (ก่อนขึ้นของจริง)
+
+อย่าข้ามข้อ เรียงตามนี้:
+
+1. **ทดสอบเดโมบนเครื่องนี้ให้ครบรอบ**  
+   ล็อกอิน + OTP เมล Resend · Kiosk พร้อมคีย์ · Agent รันแอดมิน · บล็อกเว็บ/โปรแกรม · ส่งออก · คะแนนพฤติกรรม
+2. **รอบตรวจ Opus (แชทใหม่ สั้น)**  
+   ไล่คีย์ Kiosk/Agent, JWT, เมลห้ามอยู่ใน git, ที่นั่ง Occupied ค้าง, นโยบายประตูไม่จ่ายที่นั่ง — แก้เฉพาะที่ชี้ว่าอันตรายก่อนพรีเซนต์
+3. **เตรียมเครื่องจริง (ยังไม่กดขึ้นเน็ตมหาวิทยาลัย)**  
+   โดเมน + HTTPS · CORS ไม่ใช่แค่ localhost · `Jwt:Key` ใหม่ · รหัสแอดมิน/นักศึกษาใหม่ · Resend โดเมนที่ verify แล้ว · `VITE_API_URL` และ Face Service URL ของเซิร์ฟเวอร์ · อย่าใช้ SQLite เป็นคำตอบระยะยาวถ้ามีผู้ใช้พร้อมกันมาก
+4. **ติดตั้งที่แล็บ**  
+   Agent ทีละเครื่อง (แอดมิน + API จริง + คีย์ที่นั่ง) · Kiosk ที่ประตู (`X-Kiosk-Key` ของห้องนั้น)
+
+เดโม/พรีเซนต์จากโน้ตบุ๊กทำได้หลังข้อ 1 (ข้อ 2 ควรทำก่อนโชว์กรรมการถ้ามีเวลา)
+
+### นโยบายเฝ้าเว็บ/โปรแกรม (ตัดสินแล้ว — MVP ทำแล้ว)
+
+อย่าขึ้น “น่าสงสัย” ทั้งก้อนแล้วให้แอดมินไล่ดู และอย่าทำฐานอนุญาต/ห้ามทั้งอินเทอร์เน็ต
+
+| อย่าง | วิธี |
+|-------|------|
+| เว็บ | ค่าเริ่มต้นใช้ได้ ห้ามเป็น **หมวด** ไม่ใช่ allowlist ทั้งเว็บ — แอดมินเลือกหมวด UT1 แล้วระบบนำเข้าโดเมนหมวดนั้นเข้า `website_blacklist` พร้อม `category` |
+| แหล่งหมวด | [Blacklists UT1](https://dsi.ut-capitole.fr/blacklists/index_en.php) (เช่น `social_networks`, สตรีม, เกม) — **จำกัด 250 โดเมนต่อหมวด** (สูงสุด 400) ไม่เททั้งไฟล์ลง hosts |
+| โปรแกรม | รายการอนุญาตของห้องแล็บ (`program_allowlist`) + รายการห้ามสั้นๆ ที่รู้แล้ว (`discord.exe`, `steam.exe`) |
+| ของไม่รู้จัก | รวมเป็นสรุปแท็บ Monitor **ไม่รู้จัก** (ซ้ำกี่ครั้ง / กี่เครื่อง) ไม่ขึ้นคิวทีละคลิก |
+| คะแนน | หักเมื่อแอดมินกดบล็อกในคิวน่าสงสัย หรือ no-show — ไม่หักอัตโนมัติแค่เพราะโปรแกรม/เว็บไม่รู้จัก |
+| ห้าม | ให้ AI ตัดสินว่าเว็บ/โปรแกรมไม่ดี · ส่งทุกแท็บเบราว์เซอร์ขึ้น Monitor |
+
+Windows Agent (heartbeat / logout / บล็อกเว็บ / บล็อกโปรแกรม / สรุปโปรแกรมไม่รู้จัก) ทำแล้ว — รายละเอียด `docs/implementation/AGENT.md` และ `windows-agent/README.md`
+
+---
+
+## Kiosk device auth (`X-Kiosk-Key`)
+
+แนวเดียวกับ Agent แต่ผูก **ห้อง** ไม่ผูกที่นั่ง
+
+- แอดมิน `GET/POST /api/admin/kiosk-devices` และ `POST /api/admin/kiosk-devices/{id}/revoke` (JWT admin+)
+- `apiKey` ส่งกลับครั้งเดียวตอนสร้าง แล้วไม่โชว์ในรายการอีก
+- `GET /api/kiosk/rooms/{roomId}`, `POST /api/kiosk/entry/verify-otp`, `POST /api/kiosk/entry/verify-face` ต้องมี header `X-Kiosk-Key` ของห้องนั้น — คีย์ห้องอื่น / เพิกถอนแล้ว / ไม่ส่ง → 401
+- หน้า `/kiosk/:roomId` เก็บคีย์ใน `localStorage` ของเครื่องประตู หรือรับครั้งแรกจาก `?key=` แล้วตัดออกจาก URL — จอสแกนไม่ให้ผู้ใช้กรอกคีย์
+- เปิดตั้งค่าใหม่ด้วย `?setup=1`
+- โหมด dev: seeder ใส่ `dev-kiosk-key-1` … ตามลำดับชื่อห้อง (`ห้องแล็บ 1` = key-1)
+- นโยบายที่นั่งไม่เปลี่ยน: Kiosk ตรวจสิทธิ์เข้าห้องอย่างเดียว ที่นั่ง Occupied เมื่อ login บน Agent
+
+หน้าแอดมิน: **จัดการข้อมูล → ห้องแล็บ → อุปกรณ์ Kiosk ต่อห้อง**
 
 ---
 
@@ -220,7 +316,7 @@ py -3.11 -m uvicorn app.main:app --host 0.0.0.0 --port 8001
 `seatLabel` ใช้ `TrackingService.SeatLabel(n)` = `คอม 01` (ตัวเดียวกับหน้า Tracking) และ
 `displayName` ใช้ `TrackingService.ShortDisplayName` เพื่อไม่โชว์นามสกุลเต็มบนจอสาธารณะ
 
-### `KioskEndpoints.cs` + `KioskService.cs` — public, ไม่ใช้ JWT
+### `KioskEndpoints.cs` + `KioskService.cs` — `X-Kiosk-Key` ผูกห้อง ไม่ใช้ JWT
 
 ```
 GET  /api/kiosk/rooms/{roomId}    → { id, name, building, status } · 404 ถ้าไม่มีห้อง
@@ -241,7 +337,7 @@ POST /api/kiosk/entry/verify-otp  → body { roomId, code: "123456" }
 
 ### Frontend
 
-- `kinof-app/src/api/kiosk.js` — `getKioskRoom`, `verifyKioskOtp` (fetch ตรง ไม่ผ่าน `apiFetch` จึงไม่แนบ JWT)
+- `kinof-app/src/api/kiosk.js` — `getKioskRoom`, `verifyKioskOtp` (fetch ตรง ไม่ผ่าน `apiFetch` จึงไม่แนบ JWT; ส่ง `X-Kiosk-Key`)
 - `kinof-app/src/pages/kiosk/KioskEntry.jsx` — route `/kiosk/:roomId` **นอก user/admin shell** (ไม่มี Sidebar/TopBar)
   4 สถานะ: welcome (ชื่อห้อง + สถานะ + นาฬิกากรุงเทพ) → otp (6 ช่อง + keypad บนจอ + คีย์บอร์ดจริง)
   → success (ชื่อผู้ใช้ + ที่นั่ง, auto reset 30 วิ) → denied (เหตุผล + auto reset 20 วิ)
@@ -254,7 +350,7 @@ POST /api/kiosk/entry/verify-otp  → body { roomId, code: "123456" }
 1. Admin สร้างคาบที่คลุมเวลาปัจจุบันในห้องที่ต้องการ (`จัดการข้อมูล → ตารางเรียน`) แล้วเพิ่มรหัส `6600000001`
    — หรือใช้ booking ที่ `Confirmed` และกำลังอยู่ในช่วงเวลา
 2. Login `student / Student123!` → `/entry-otp` → ขอรหัสของห้องนั้น → copy OTP จาก console backend
-3. เปิด `http://localhost:5173/kiosk/{roomId}` → "ใช้รหัสจากเว็บ" → กรอก 6 หลัก → ต้องได้ที่นั่ง
+3. เปิด `http://localhost:5173/kiosk/{roomId}?key=dev-kiosk-key-1` (ครั้งแรก) → "ใช้รหัสจากเว็บ" → กรอก 6 หลัก → ต้องเข้าห้องได้ (ไม่จ่ายที่นั่ง)
 4. ถ้าที่นั่งในห้องเป็น `Occupied`/`Offline` หมด จะได้ `"ไม่มีที่นั่งว่างในห้องนี้"` — ปล่อยที่นั่งก่อนทดสอบซ้ำ
 
 ### ข้อสังเกตที่ค้างไว้
@@ -264,7 +360,7 @@ POST /api/kiosk/entry/verify-otp  → body { roomId, code: "123456" }
   lowercase อยู่แล้ว จึงคงรูปแบบเดิมไว้เพื่อไม่ให้ข้อมูลเก่าพัง
 - ยังไม่มี flow ปล่อยที่นั่ง — seat จะค้าง `Occupied` จนกว่า agent จะส่ง `logout` (Phase 7)
 - SQLite ที่ใช้ทดสอบมีที่นั่ง `Lab A` #2–#30 เป็น `Offline` มาก่อนหน้านี้ เหลือที่ว่างจริงแค่ #1
-- ยังไม่มี kiosk API key — 3B ใช้ endpoint สาธารณะ + rate limit ต่อห้องตามที่ตัดสินใจไว้
+- Kiosk ใช้ `X-Kiosk-Key` ผูกห้อง (สร้างจากแอดมิน / คีย์ตัวอย่าง `dev-kiosk-key-N` ในโหมด dev) + rate limit ต่อห้องตามที่ตัดสินใจไว้
 
 ---
 
@@ -290,7 +386,7 @@ POST /api/kiosk/entry/verify-otp  → body { roomId, code: "123456" }
 ### `KioskService.VerifyFaceAsync` + `POST /api/kiosk/entry/verify-face`
 
 ```
-POST /api/kiosk/entry/verify-face    [public — Kiosk]
+POST /api/kiosk/entry/verify-face    [X-Kiosk-Key]
   Request: { roomId, imageBase64: "data:image/jpeg;base64,..." }
   granted: เหมือน verify-otp ทุก field (user/room/seatNumber/seatLabel/computerName)
   denied:  { granted: false, message, suggestOtp, identified? }
@@ -361,7 +457,7 @@ POST /api/kiosk/entry/verify-face    [public — Kiosk]
    (dependency อยู่ที่ Python 3.11 global ไม่ได้อยู่ใน `.venv` ของโฟลเดอร์นั้น)
 2. Login `student / Student123!` → `/register/face` → ลงทะเบียนใบหน้าตัวเอง
 3. Admin สร้างคาบเรียนที่คลุมเวลาปัจจุบันในห้องที่จะทดสอบ (หรือใช้ booking ที่ `Confirmed` อยู่)
-4. เปิด `http://localhost:5173/kiosk/{roomId}` → "สแกนใบหน้า" → มองกล้องนิ่ง ~1.5 วินาที → ต้องได้ที่นั่ง
+4. เปิด `http://localhost:5173/kiosk/{roomId}?key=dev-kiosk-key-1` → "สแกนใบหน้า" → มองกล้องนิ่ง ~1.5 วินาที → ต้องเข้าห้องได้ (ไม่จ่ายที่นั่ง)
 5. ให้คนที่ไม่ได้ลงทะเบียนใบหน้าลองสแกน 3 ครั้ง → ต้องเด้งไปหน้ากรอก OTP เอง
 
 ### Seed สำหรับเทส
@@ -391,7 +487,8 @@ POST /api/kiosk/entry/verify-face    [public — Kiosk]
 
 ```
 backend/Kinof.Api/Services/EntryService.cs      ← authorize + seat + access_log (3B/3C ใช้ร่วม)
-backend/Kinof.Api/Services/KioskService.cs      ← verify entry OTP + verify face + rate limiter
+backend/Kinof.Api/Services/KioskService.cs      ← verify entry OTP + verify face + rate limiter + X-Kiosk-Key
+backend/Kinof.Api/Services/KioskDeviceService.cs ← แอดมินสร้าง/เพิกถอนอุปกรณ์ต่อห้อง
 backend/Kinof.Api/Services/FaceMatchingService.cs ← identify 1:N cosine (3C)
 backend/Kinof.Api/Services/FaceImage.cs         ← decode/validate รูป base64 (enroll + kiosk)
 backend/Kinof.Api/KioskEndpoints.cs
@@ -399,8 +496,17 @@ backend/Kinof.Api/Services/EntryOtpService.cs
 backend/Kinof.Api/Services/EmailSender.cs
 backend/Kinof.Api/Services/AuthService.cs
 backend/Kinof.Api/Program.cs
+backend/Kinof.Api/Services/WebsiteBlacklistService.cs
+backend/Kinof.Api/Services/Ut1WebsiteCategoryService.cs
+backend/Kinof.Api/Services/ProgramAllowlistService.cs
+windows-agent/Worker.cs
+windows-agent/ProgramProcessBlocker.cs
+windows-agent/AgentApiClient.cs
+docs/implementation/AGENT.md
+kinof-app/src/pages/admin/AdminMonitor.jsx
 kinof-app/src/pages/kiosk/KioskEntry.jsx
 kinof-app/src/api/kiosk.js
+kinof-app/src/pages/admin/AdminData.jsx
 kinof-app/src/pages/user/EntryOtp.jsx
 kinof-app/src/api/auth.js
 kinof-app/src/App.jsx
