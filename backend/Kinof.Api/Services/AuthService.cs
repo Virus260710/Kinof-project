@@ -34,6 +34,7 @@ public sealed class AuthService(
     IFaceEmbeddingClient faceEmbeddingClient,
     ScheduleService scheduleService,
     IConfiguration configuration,
+    IHostEnvironment environment,
     ILogger<AuthService> logger)
 {
     public async Task<IResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken)
@@ -52,19 +53,7 @@ public sealed class AuthService(
                 statusCode: StatusCodes.Status401Unauthorized);
         }
 
-        var sendResult = await TrySendOtpAsync(user, cancellationToken);
-        if (!sendResult.Allowed)
-            return Results.Json(
-                new { message = "ส่ง OTP เกิน 3 ครั้งต่อชั่วโมง กรุณาลองใหม่ภายหลัง" },
-                statusCode: StatusCodes.Status429TooManyRequests);
-
-        return Results.Ok(new
-        {
-            requiresOtp = true,
-            userId = user.Id,
-            maskedEmail = MaskEmail(user.Email),
-            deliveryMode = sendResult.DeliveryMode
-        });
+        return await SendOtpChallengeAsync(user, cancellationToken);
     }
 
     public async Task<IResult> RegisterAsync(
@@ -121,42 +110,59 @@ public sealed class AuthService(
         await db.SaveChangesAsync(cancellationToken);
         await scheduleService.LinkPendingForStudentAsync(user, cancellationToken);
 
-        var sendResult = await TrySendOtpAsync(user, cancellationToken);
-        return Results.Ok(new
-        {
-            requiresOtp = true,
-            userId = user.Id,
-            maskedEmail = MaskEmail(user.Email),
-            deliveryMode = sendResult.DeliveryMode
-        });
+        return await SendOtpChallengeAsync(user, cancellationToken);
     }
 
-    public async Task<IResult> VerifyOtpAsync(
-        VerifyEmailOtpRequest request,
+    /// <summary>
+    /// Shared email-OTP check for web login and lab-machine login. Does not mark the
+    /// code used — the caller must set <see cref="EmailOtp.UsedAt"/> in the same SaveChanges.
+    /// </summary>
+    public async Task<(User? User, EmailOtp? Otp, IResult? Error)> MatchLoginEmailOtpAsync(
+        Guid userId,
+        string? code,
         CancellationToken cancellationToken)
     {
-        if (request.Code.Length != 6 || request.Code.Any(character => !char.IsDigit(character)))
-            return InvalidOtp();
+        var trimmed = code?.Trim() ?? "";
+        if (trimmed.Length != 6 || trimmed.Any(character => !char.IsDigit(character)))
+            return (null, null, InvalidOtp());
 
         var now = DateTime.UtcNow;
         var otp = await db.EmailOtps
             .Where(x =>
-                x.UserId == request.UserId &&
+                x.UserId == userId &&
                 (x.Purpose == "login" || x.Purpose == "login_resend") &&
                 x.UsedAt == null &&
                 x.ExpiresAt > now)
             .OrderByDescending(x => x.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (otp is null || !BCrypt.Net.BCrypt.Verify(request.Code, otp.CodeHash))
-            return InvalidOtp();
+        if (otp is null || !BCrypt.Net.BCrypt.Verify(trimmed, otp.CodeHash))
+            return (null, null, InvalidOtp());
 
         var user = await db.Users.SingleOrDefaultAsync(
-            x => x.Id == request.UserId && x.Status == UserStatus.Active,
+            x => x.Id == userId && x.Status == UserStatus.Active,
             cancellationToken);
         if (user is null)
+            return (null, null, Results.Unauthorized());
+
+        return (user, otp, null);
+    }
+
+    public async Task<IResult> VerifyOtpAsync(
+        VerifyEmailOtpRequest request,
+        CancellationToken cancellationToken)
+    {
+        var (user, otp, error) = await MatchLoginEmailOtpAsync(
+            request.UserId,
+            request.Code,
+            cancellationToken);
+        if (error is not null)
+            return error;
+
+        if (user is null || otp is null)
             return Results.Unauthorized();
 
+        var now = DateTime.UtcNow;
         otp.UsedAt = now;
         var refreshToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
         db.RefreshTokens.Add(new RefreshToken
@@ -286,12 +292,13 @@ public sealed class AuthService(
                 MaskEmail(user.Email),
                 delivery.Mode);
         }
-        catch (Exception exception)
+        catch (EmailDeliveryException exception)
         {
             logger.LogError(
                 exception,
                 "Password reset email delivery failed for {MaskedEmail}",
                 MaskEmail(user.Email));
+            return EmailDelivery.FailedResult();
         }
 
         return response;
@@ -401,18 +408,7 @@ public sealed class AuthService(
         if (user is null)
             return Results.NotFound(new { message = "ไม่พบบัญชีผู้ใช้" });
 
-        var sent = await TrySendOtpAsync(user, cancellationToken, isResend: true);
-        if (!sent.Allowed)
-            return Results.Json(
-                new { message = "ส่ง OTP เกิน 3 ครั้งต่อชั่วโมง กรุณาลองใหม่ภายหลัง" },
-                statusCode: StatusCodes.Status429TooManyRequests);
-
-        return Results.Ok(new
-        {
-            ok = true,
-            maskedEmail = MaskEmail(user.Email),
-            deliveryMode = sent.DeliveryMode
-        });
+        return await SendOtpChallengeAsync(user, cancellationToken, isResend: true);
     }
 
     private async Task<OtpSendResult> TrySendOtpAsync(
@@ -421,17 +417,6 @@ public sealed class AuthService(
         bool isResend = false)
     {
         var now = DateTime.UtcNow;
-        if (isResend)
-        {
-            var sentLastHour = await db.EmailOtps.CountAsync(
-                x => x.UserId == user.Id &&
-                     x.Purpose == "login_resend" &&
-                     x.CreatedAt >= now.AddHours(-1),
-                cancellationToken);
-            if (sentLastHour >= 3)
-                return new OtpSendResult(false, "rate_limited");
-        }
-
         var activeOtps = await db.EmailOtps
             .Where(x =>
                 x.UserId == user.Id &&
@@ -451,25 +436,58 @@ public sealed class AuthService(
         });
         await db.SaveChangesAsync(cancellationToken);
 
+        var delivery = await emailSender.SendLoginOtpAsync(
+            user.Email,
+            user.FirstName,
+            code,
+            cancellationToken);
+        logger.LogInformation("Login OTP delivery mode for {MaskedEmail}: {Mode}",
+            MaskEmail(user.Email),
+            delivery.Mode);
+        return new OtpSendResult(true, delivery.Mode, DevOtp(code, delivery.Mode));
+    }
+
+    private async Task<IResult> SendOtpChallengeAsync(
+        User user,
+        CancellationToken cancellationToken,
+        bool isResend = false)
+    {
         try
         {
-            var delivery = await emailSender.SendLoginOtpAsync(
-                user.Email,
-                user.FirstName,
-                code,
-                cancellationToken);
-            logger.LogInformation("Login OTP delivery mode for {MaskedEmail}: {Mode}",
-                MaskEmail(user.Email),
-                delivery.Mode);
-            return new OtpSendResult(true, delivery.Mode);
+            var sent = await TrySendOtpAsync(user, cancellationToken, isResend);
+            if (isResend)
+            {
+                return Results.Ok(new
+                {
+                    ok = true,
+                    maskedEmail = MaskEmail(user.Email),
+                    deliveryMode = sent.DeliveryMode,
+                    devOtp = sent.DevCode
+                });
+            }
+
+            return LoginOtpChallenge(user, sent);
         }
-        catch (Exception exception)
+        catch (EmailDeliveryException exception)
         {
             logger.LogError(exception, "Login OTP email delivery failed for {MaskedEmail}",
                 MaskEmail(user.Email));
-            return new OtpSendResult(true, "failed");
+            return EmailDelivery.FailedResult();
         }
     }
+
+    private IResult LoginOtpChallenge(User user, OtpSendResult sendResult) =>
+        Results.Ok(new
+        {
+            requiresOtp = true,
+            userId = user.Id,
+            maskedEmail = MaskEmail(user.Email),
+            deliveryMode = sendResult.DeliveryMode,
+            devOtp = sendResult.DevCode
+        });
+
+    private string? DevOtp(string code, string deliveryMode) =>
+        environment.IsDevelopment() && deliveryMode != EmailDelivery.SmtpMode ? code : null;
 
     private string CreateAccessToken(User user)
     {
@@ -520,7 +538,7 @@ public sealed class AuthService(
     private static IResult ValidationError(string message) =>
         Results.BadRequest(new { message });
 
-    private sealed record OtpSendResult(bool Allowed, string DeliveryMode);
+    private sealed record OtpSendResult(bool Allowed, string DeliveryMode, string? DevCode = null);
 
     private static string HashToken(string token) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));

@@ -73,30 +73,71 @@ GET  /api/auth/entry-otp/active    [JWT]
 
 - ต้อง user Active; ถ้ามี roomId ห้องต้องมีจริงและ Open
 - OTP เก่าที่ยังไม่ used ของ user ถูก invalidate เมื่อขอใหม่
-- Dev ไม่มี SMTP → log OTP ใน console backend
+- Development (`Email:SkipSmtpInDevelopment` = true ใน `appsettings.Development.json`) → **ไม่ยิง Resend** log OTP ใน console + โชว์บนหน้าเว็บ (`deliveryMode = console`) จนกว่าจะขึ้นเครื่องจริง
+- Production ส่งล้ม → HTTP 503
 
 ---
 
-## ส่ง Email (Backend)
+## ส่ง Email จริง (SMTP / Resend)
 
-**.NET:** MailKit + SMTP  
-**Node:** nodemailer
+Backend ใช้ **MailKit** ส่งเมลเมื่อมีครบ `SmtpHost` + `Username` + `Password` แล้ว `deliveryMode` จะเป็น `smtp`  
+หน้า `/login/otp` **ไม่โชว์รหัส OTP** เมื่อ `deliveryMode` เป็น `smtp`
 
-```json
-// appsettings.json
-{
-  "Email": {
-    "SmtpHost": "smtp.gmail.com",
-    "SmtpPort": 587,
-    "Username": "your-app@gmail.com",
-    "Password": "app-password",
-    "FromAddress": "noreply@kinof.local",
-    "FromName": "KINOF Lab System"
-  }
-}
+รหัส SMTP / Resend API key **ห้ามใส่ใน `appsettings.json` ที่ commit** — ใช้ **dotnet user-secrets** หรือ environment เท่านั้น  
+ถ้าใส่ secrets ครบแล้ว **อย่า set `Email:Password` ซ้ำ** และอย่า `user-secrets list` ลงแชท/commit
+
+### Resend SMTP (ที่ใช้อยู่)
+
+ค่าจริงอยู่ที่ user-secrets ของโปรเจกต์ `backend/Kinof.Api` (ทับค่าใน `appsettings.json`):
+
+| Key | ค่า |
+|-----|-----|
+| `Email:SmtpHost` | `smtp.resend.com` |
+| `Email:SmtpPort` | `587` |
+| `Email:Username` | `resend` |
+| `Email:Password` | Resend API key (`re_...`) — **user-secrets เท่านั้น** |
+| `Email:FromAddress` | ผู้ส่งที่ verify แล้ว |
+| `Email:FromName` | เช่น `KINOF Lab System` |
+
+ครั้งแรกที่เครื่อง (ข้ามได้ถ้าใส่ครบแล้ว):
+
+```powershell
+cd backend
+dotnet user-secrets set "Email:SmtpHost" "smtp.resend.com" --project .\Kinof.Api\Kinof.Api.csproj
+dotnet user-secrets set "Email:SmtpPort" "587" --project .\Kinof.Api\Kinof.Api.csproj
+dotnet user-secrets set "Email:Username" "resend" --project .\Kinof.Api\Kinof.Api.csproj
+dotnet user-secrets set "Email:Password" "re_xxxxxxxx" --project .\Kinof.Api\Kinof.Api.csproj
+dotnet user-secrets set "Email:FromAddress" "onboarding@resend.dev" --project .\Kinof.Api\Kinof.Api.csproj
 ```
 
-**Dev ไม่มี SMTP:** log OTP ลง console / ใช้ [Mailpit](https://mailpit.axllent.org/) local
+รีสตาร์ท API หลังเปลี่ยน secrets
+
+**ข้อจำกัด Resend:** `onboarding@resend.dev` ส่งได้เฉพาะอีเมลเจ้าของบัญชี Resend  
+ถ้า OTP ต้องถึงเมลอื่น ให้ verify domain ที่ [resend.com](https://resend.com) แล้วตั้ง `Email:FromAddress` เป็นที่อยู่บนโดเมนนั้น
+
+เพื่อทดสอบ inbox ทันที ให้ชี้บัญชี `student` ไปที่เมลเจ้าของ Resend (ไม่ใช่ password):
+
+```powershell
+dotnet user-secrets set "Seed:StudentEmail" "your-resend-account@gmail.com" --project .\Kinof.Api\Kinof.Api.csproj
+```
+
+รีสตาร์ท API — seeder จะอัปเดตอีเมลแถว `student` ใน Development (ข้ามถ้าอีเมลนั้นถูกบัญชีอื่นใช้แล้ว เพราะ unique)
+
+`appsettings.json` ที่ commit ได้มีแค่ placeholder (`Password` ว่าง) — ค่า Resend มาจาก secrets
+
+หรือ Environment: `Email__SmtpHost`, `Email__Username`, `Email__Password`, `Email__FromAddress` (ขีดล่างสองเส้น)
+
+### พฤติกรรมตามสภาพแวดล้อม
+
+| สภาพ | ผล |
+|------|-----|
+| มี host+user+password และส่งสำเร็จ | ส่งเมลจริง, `deliveryMode = smtp`, หน้าเว็บไม่โชว์ `devOtp` |
+| **Development** `SkipSmtpInDevelopment: true` | ไม่ส่ง Resend — OTP ใน console และหน้าเว็บ |
+| **Production** ไม่มี password หรือ SMTP ล้ม | API ตอบ 503 ไม่แอบสำเร็จ — ห้าม fallback ไป console |
+
+หน้าเว็บโชว์ `devOtp` เฉพาะ Development เมื่อ `deliveryMode` ไม่ใช่ `smtp`
+
+**Production** ตั้งรหัสด้วย environment หรือ secret store ของ host — อย่า commit ไฟล์ที่มี API key
 
 **Email template (ตัวอย่าง):**
 ```

@@ -33,7 +33,4 @@ export const bookingScheduleConflicts = [
   { day: "วันพฤหัสบดี", course: "IT464 / Web Administration", slotId: 4 },
 ];
 
-// TODO(backend): profile score and penalty-history endpoints
-export const penaltyHistory = [
-  { id: 1, date: "2 เมษายน 2569", points: 5, reason: "ไม่มาใช้ห้องแล็บตามวัน-เวลาที่จองไว้" },
-];
+// TODO(backend): profile usage-hours endpoint

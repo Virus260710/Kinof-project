@@ -14,7 +14,7 @@ const TABS = [
 
 const toneFor = (status) => status === "เสร็จสิ้น" ? "green" : status === "กำลังดำเนินการ" ? "blue" : "amber";
 
-export default function AdminHelpCenter({ problemReports, setProblemReports, notify }) {
+export default function AdminHelpCenter({ problemReports, setProblemReports, notify, onBadgesChanged }) {
   const [tab, setTab] = useState("all");
   const [selected, setSelected] = useState(null);
   const [noteReport, setNoteReport] = useState(null);
@@ -57,6 +57,7 @@ export default function AdminHelpCenter({ problemReports, setProblemReports, not
       setSelected((current) => current?.id === report.id ? updated : current);
       setStatusChange(null);
       notify(nextStatus === "เสร็จสิ้น" ? "อัปเดตสถานะเป็นเสร็จสิ้นแล้ว" : "รับเรื่องเรียบร้อย กำลังดำเนินการ");
+      onBadgesChanged?.();
     } catch (error) {
       notify(error.message);
     } finally {

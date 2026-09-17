@@ -18,39 +18,30 @@ Development seed accounts:
 
 Change these passwords before using a shared environment.
 
-## SMTP
+## SMTP (Resend)
 
-Store credentials with .NET user secrets (never commit API keys):
-
-```powershell
-dotnet user-secrets set "Email:SmtpHost" "smtp.resend.com" `
-  --project .\Kinof.Api\Kinof.Api.csproj
-dotnet user-secrets set "Email:SmtpPort" "587" `
-  --project .\Kinof.Api\Kinof.Api.csproj
-dotnet user-secrets set "Email:Username" "resend" `
-  --project .\Kinof.Api\Kinof.Api.csproj
-dotnet user-secrets set "Email:Password" "re_xxxxxxxxx" `
-  --project .\Kinof.Api\Kinof.Api.csproj
-dotnet user-secrets set "Email:FromAddress" "onboarding@resend.dev" `
-  --project .\Kinof.Api\Kinof.Api.csproj
-```
-
-Restart the API after setting secrets.
-
-**Resend test sender:** `onboarding@resend.dev` can only deliver to the Resend
-account owner's email. To test OTP in a real inbox immediately, point the seed
-student account at that address:
+เก็บค่า SMTP ที่ **dotnet user-secrets** ของ `Kinof.Api` — **ห้าม commit API key** และอย่าใส่ใน `appsettings.json`  
+ถ้าใส่ครบแล้ว **อย่า set `Email:Password` ซ้ำ**
 
 ```powershell
-dotnet user-secrets set "Seed:StudentEmail" "your-resend-account@gmail.com" `
-  --project .\Kinof.Api\Kinof.Api.csproj
+dotnet user-secrets set "Email:SmtpHost" "smtp.resend.com" --project .\Kinof.Api\Kinof.Api.csproj
+dotnet user-secrets set "Email:SmtpPort" "587" --project .\Kinof.Api\Kinof.Api.csproj
+dotnet user-secrets set "Email:Username" "resend" --project .\Kinof.Api\Kinof.Api.csproj
+dotnet user-secrets set "Email:Password" "re_xxxxxxxx" --project .\Kinof.Api\Kinof.Api.csproj
+dotnet user-secrets set "Email:FromAddress" "onboarding@resend.dev" --project .\Kinof.Api\Kinof.Api.csproj
 ```
 
-Restart the API; the seeder updates the existing `student` row on startup.
+`onboarding@resend.dev` ส่งได้เฉพาะเมลเจ้าของบัญชี Resend  
+ถ้าจะทดสอบ OTP ใน inbox จริง ให้ชี้ seed student ไปที่เมลเจ้าของบัญชี:
 
-**Development fallback:** if SMTP is missing or sending fails, the API logs the
-OTP in the backend console and the OTP page shows the yellow CMD hint. OTP
-verification still works.
+```powershell
+dotnet user-secrets set "Seed:StudentEmail" "your-resend-account@gmail.com" --project .\Kinof.Api\Kinof.Api.csproj
+```
+
+รีสตาร์ท API หลังเปลี่ยน secrets เมื่อส่งสำเร็จ `deliveryMode` เป็น `smtp` และหน้าเว็บไม่โชว์ OTP
+
+**Development fallback:** ถ้าไม่มี password หรือ SMTP ส่งไม่สำเร็จ API log OTP/ลิงก์ใน console — OTP ยังใช้ได้  
+**Production:** ไม่มี password หรือส่งล้ม → เริ่มต้นไม่ขึ้น หรือ API ตอบ 503 ไม่แอบสำเร็จ
 
 The frontend uses `http://localhost:5106` by default. Override it with
 `VITE_API_URL` when needed.

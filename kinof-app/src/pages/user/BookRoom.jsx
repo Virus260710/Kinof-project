@@ -28,6 +28,7 @@ import {
   slotToRange,
 } from "../../api/bookings";
 import { findSlotClassConflict, getMySchedule } from "../../api/schedules";
+import { getBehavior } from "../../api/behavior";
 
 const BOOK_ROOM_DRAFT_KEY = "kinofBookRoomDraft";
 
@@ -80,6 +81,8 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
   const [pendingBookingId, setPendingBookingId] = useState(draft?.pendingBookingId ?? null);
   const [groupStatus, setGroupStatus] = useState(null);
   const [invitesSent, setInvitesSent] = useState(Boolean(draft?.pendingBookingId));
+  const [behaviorScore, setBehaviorScore] = useState(null);
+  const [minScoreToBook, setMinScoreToBook] = useState(50);
 
   const [bookingsList, setBookingsList] = useState([...existingBookings]);
 
@@ -91,6 +94,15 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
     getMySchedule()
       .then(setMySchedule)
       .catch(() => setMySchedule([]));
+  }, []);
+
+  useEffect(() => {
+    getBehavior()
+      .then((data) => {
+        setBehaviorScore(typeof data.score === "number" ? data.score : 100);
+        if (typeof data.minScoreToBook === "number") setMinScoreToBook(data.minScoreToBook);
+      })
+      .catch(() => setBehaviorScore(100));
   }, []);
 
   useEffect(() => {
@@ -188,6 +200,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
   }, [pendingBookingId]);
 
   const userEmail = auth?.user?.email ?? "—";
+  const cannotBook = behaviorScore !== null && behaviorScore < minScoreToBook;
   const hasFriends = friends.length > 0;
   const canConfirmBooking = !hasFriends || Boolean(groupStatus?.canConfirm && !groupStatus?.hasDeclined);
   const steps = ["1. เลือกวัน-เวลา", "2. จัดการสมาชิก-ดูห้อง", "3. ยืนยันการจอง"];
@@ -305,7 +318,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
   };
 
   const handleSearchAvailableRooms = async () => {
-    if (!slot) return;
+    if (!slot || cannotBook) return;
     setIsSearchingRooms(true);
     setRequestError("");
     setSelectedRoom(null);
@@ -664,6 +677,13 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
 
           <p className="text-xs text-muted italic">เมื่อไปหน้ายืนยันการจอง ระบบจะส่งคำเชิญให้สมาชิก และต้องรอให้ทุกคนตอบรับก่อนยืนยันได้</p>
 
+          {cannotBook && (
+            <div className="flex items-start gap-2 bg-rose-50 border border-rose-200 text-rose-800 text-xs px-3.5 py-3 rounded-xl">
+              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+              <span>คะแนนพฤติกรรมเหลือ {behaviorScore}/100 ต้องมีอย่างน้อย {minScoreToBook} จึงจองห้องได้ (รีเซ็ตทุกวันที่ 1 ของเดือน)</span>
+            </div>
+          )}
+
           <div className="flex justify-center pt-2">
             <Button
               variant="primary"
@@ -671,6 +691,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
               icon={Search}
               iconPosition="left"
               onClick={handleSearchAvailableRooms}
+              disabled={cannotBook}
               className="w-full max-w-sm"
             >
               ค้นหาห้องว่าง
@@ -717,6 +738,8 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
                 )}
                 {availableRooms.map((r) => {
                   const isSelected = selectedRoom?.id === r.id;
+                  const remaining = typeof r.remainingSeats === "number" ? r.remainingSeats : r.capacity;
+                  const fill = r.capacity ? Math.max(8, Math.round((remaining / r.capacity) * 100)) : 0;
 
                   return (
                     <button
@@ -740,12 +763,11 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
                         )}
                       </div>
 
-                      {/* แถบแสดงที่นั่งคงเหลือ — สื่อ "เหลือเยอะ/น้อย" ได้เร็วกว่าตัวเลขล้วน */}
                       <div>
                         <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
                           <div
                             className="h-full rounded-full transition-all duration-300 bg-teal-500"
-                            style={{ width: "100%" }}
+                            style={{ width: `${fill}%` }}
                           />
                         </div>
                       </div>
@@ -753,7 +775,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
                       <div className="flex items-center justify-between text-xs pt-1">
                         <div className="flex items-center gap-1.5 text-slate-500">
                           <Users size={13} />
-                          <span>ความจุ {r.capacity} ที่นั่ง</span>
+                          <span>เหลือ {remaining}/{r.capacity} ที่นั่ง</span>
                         </div>
                         <span className="font-medium px-2.5 py-0.5 rounded-full text-xs border text-emerald-700 bg-emerald-50 border-emerald-200/60">
                           พร้อมจอง
@@ -826,7 +848,7 @@ export default function BookRoom({ onBookingCreated, notify, existingBookings = 
               <div className="grid grid-cols-3 px-5 md:px-6 py-4 items-center">
                 <span className="text-muted font-medium">ห้องที่เลือก</span>
                 <span className="col-span-2 font-semibold text-navy-800">
-                  {selectedRoom?.name} (รองรับ {selectedRoom?.capacity} ที่นั่ง)
+                  {selectedRoom?.name} (เหลือ {selectedRoom?.remainingSeats ?? selectedRoom?.capacity}/{selectedRoom?.capacity} ที่นั่ง)
                 </span>
               </div>
               <div className="grid grid-cols-3 px-5 md:px-6 py-4 items-start">

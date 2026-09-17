@@ -9,6 +9,7 @@ public enum InvitationStatus { Pending, Accepted, Declined }
 public enum ProblemReportStatus { Pending, InProgress, Resolved }
 public enum AuthMethod { Face, OtpFallback }
 public enum AuthResult { Granted, Denied }
+public enum BehaviorReviewStatus { Pending, Cleared, Penalized }
 
 public sealed class User
 {
@@ -105,6 +106,17 @@ public sealed class Agent
     public required string ApiKey { get; set; }
     public string? Hostname { get; set; }
     public DateTime? LastHeartbeat { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class KioskDevice
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid RoomId { get; set; }
+    public required string ApiKey { get; set; }
+    public string? Label { get; set; }
+    public DateTime? RevokedAt { get; set; }
+    public DateTime? LastSeenAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -250,6 +262,59 @@ public sealed class WebsiteBlacklist
     public int Id { get; set; }
     public required string UrlPattern { get; set; }
     public required string Category { get; set; }
+    public string Source { get; set; } = "manual";
     public Guid? CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class ProgramBlacklist
+{
+    public int Id { get; set; }
+    public required string ProcessName { get; set; }
+    public required string Category { get; set; }
+    public Guid? CreatedBy { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class ProgramAllowlist
+{
+    public int Id { get; set; }
+    public required string ProcessName { get; set; }
+    public string? DisplayName { get; set; }
+    public required string Category { get; set; }
+    public Guid? CreatedBy { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class BehaviorPenalty
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid UserId { get; set; }
+    public int Points { get; set; }
+    public required string Reason { get; set; }
+    public required string Source { get; set; }
+    public required string SourceKey { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public sealed class BehaviorReview
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid? UserId { get; set; }
+    public string? DisplayName { get; set; }
+    public string? Username { get; set; }
+    public Guid? RoomId { get; set; }
+    public Guid? SeatId { get; set; }
+    public string? RoomName { get; set; }
+    public string? SeatLabel { get; set; }
+    public required string Kind { get; set; }
+    public required string Target { get; set; }
+    public required string Activity { get; set; }
+    public required string QueueKey { get; set; }
+    public int OccurrenceCount { get; set; } = 1;
+    public DateTime FirstSeenAt { get; set; } = DateTime.UtcNow;
+    public DateTime LastSeenAt { get; set; } = DateTime.UtcNow;
+    public BehaviorReviewStatus Status { get; set; } = BehaviorReviewStatus.Pending;
+    public Guid? ReviewedBy { get; set; }
+    public DateTime? ReviewedAt { get; set; }
 }

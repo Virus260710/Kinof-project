@@ -11,34 +11,30 @@ public sealed record EntryDecision(
     string? Username,
     Guid? RoomId,
     string? RoomName,
-    string? Building,
-    Guid? SeatId,
-    int? SeatNumber,
-    string? SeatLabel,
-    string? ComputerName)
+    string? Building)
 {
+    public const string GrantedMessage =
+        "ผ่านการตรวจสิทธิ์เข้าห้องแล้ว กรุณาเดินเข้าไปเลือกเครื่องที่ว่าง แล้วเข้าสู่ระบบบัญชี KINOF ที่เครื่องนั้น — จุดสแกนประตูกับการล็อกอินเครื่องเป็นคนละด่าน ไม่ต้องใช้เลขเครื่องที่ระบบสุ่มให้";
+
     public static EntryDecision Deny(string message) =>
-        new(false, message, null, null, null, null, null, null, null, null, null, null);
+        new(false, message, null, null, null, null, null, null);
 
     public static EntryDecision Denied(string message, User user, Room room) =>
         new(false, message, user.Id, TrackingService.ShortDisplayName(user), user.Username,
-            room.Id, room.Name, room.Building, null, null, null, null);
+            room.Id, room.Name, room.Building);
 
-    public static EntryDecision Grant(User user, Room room, Seat seat) =>
-        new(true, null, user.Id, TrackingService.ShortDisplayName(user), user.Username,
-            room.Id, room.Name, room.Building, seat.Id, seat.SeatNumber,
-            TrackingService.SeatLabel(seat.SeatNumber), seat.ComputerName);
+    public static EntryDecision Grant(User user, Room room) =>
+        new(true, GrantedMessage, user.Id, TrackingService.ShortDisplayName(user), user.Username,
+            room.Id, room.Name, room.Building);
 }
 
 /// <summary>
-/// Shared entry pipeline for every Kiosk authentication path: entitlement check
-/// (schedule or booking) → seat assignment → access log. Phase 3B calls this after an
-/// entry OTP verifies; the Phase 3C face path will call the same method with
-/// <see cref="AuthMethod.Face"/>.
+/// Kiosk door check only: schedule or booking. Does not pick a seat, does not mark
+/// Occupied, and does not bind the person to a computer — machine login is a later step.
 /// </summary>
 public sealed class EntryService(AppDbContext db)
 {
-    public async Task<EntryDecision> AuthorizeAndAssignSeatAsync(
+    public async Task<EntryDecision> AuthorizeRoomEntryAsync(
         Guid userId,
         Guid roomId,
         AuthMethod authMethod,
@@ -63,30 +59,36 @@ public sealed class EntryService(AppDbContext db)
             await HasActiveScheduleAsync(user.Id, room.Id, nowUtc, cancellationToken) ||
             await HasActiveBookingAsync(user.Id, room.Id, nowUtc, cancellationToken);
         if (!entitled)
-            return await DenyAsync(user, room, authMethod, "ไม่มีตารางเรียนหรือการจองห้องนี้ในช่วงเวลานี้", cancellationToken);
+        {
+            var who = TrackingService.ShortDisplayName(user);
+            return await DenyAsync(
+                user,
+                room,
+                authMethod,
+                $"ระบบจดจำว่าเป็น {who} แต่บัญชีนี้ยังไม่มีตารางเรียนหรือการจอง {room.Name} ในช่วงเวลานี้",
+                cancellationToken);
+        }
 
-        var seat = await db.Seats
-            .Where(x => x.RoomId == room.Id && x.Status == SeatStatus.Available)
-            .OrderBy(x => x.SeatNumber)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (seat is null)
-            return await DenyAsync(user, room, authMethod, "ไม่มีที่นั่งว่างในห้องนี้", cancellationToken);
-
-        seat.Status = SeatStatus.Occupied;
         db.AccessLogs.Add(new AccessLog
         {
             UserId = user.Id,
             RoomId = room.Id,
-            SeatId = seat.Id,
             AuthMethod = authMethod,
             AuthResult = AuthResult.Granted,
             CreatedAt = nowUtc
         });
-        await AddAgentLoginLogAsync(user, seat, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
 
-        return EntryDecision.Grant(user, room, seat);
+        return EntryDecision.Grant(user, room);
     }
+
+    public async Task<bool> HasDoorEntitlementAsync(
+        Guid userId,
+        Guid roomId,
+        DateTime nowUtc,
+        CancellationToken cancellationToken) =>
+        await HasActiveScheduleAsync(userId, roomId, nowUtc, cancellationToken) ||
+        await HasActiveBookingAsync(userId, roomId, nowUtc, cancellationToken);
 
     /// <summary>กลุ่ม 1 — คาบที่กำลังเรียนอยู่ในห้องนี้ตามเวลากรุงเทพ</summary>
     private async Task<bool> HasActiveScheduleAsync(
@@ -154,34 +156,5 @@ public sealed class EntryService(AppDbContext db)
         });
         await db.SaveChangesAsync(cancellationToken);
         return EntryDecision.Denied(reason, user, room);
-    }
-
-    /// <summary>
-    /// Seats that already have a tracking agent get a login event so the admin monitor
-    /// shows the session immediately, before the agent itself reports in.
-    /// </summary>
-    private async Task AddAgentLoginLogAsync(User user, Seat seat, CancellationToken cancellationToken)
-    {
-        var agentId = await db.Agents
-            .AsNoTracking()
-            .Where(x => x.SeatId == seat.Id)
-            .Select(x => (Guid?)x.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (agentId is not Guid id)
-            return;
-
-        db.AgentLogs.Add(new AgentLog
-        {
-            AgentId = id,
-            EventType = AgentEventTypes.Login,
-            DataJson = new AgentLogPayload
-            {
-                UserId = user.Id,
-                Username = user.Username,
-                DisplayName = TrackingService.ShortDisplayName(user),
-                UserType = TrackingService.UserTypeLabel(user.UserType),
-                Source = "kiosk"
-            }.ToJson()
-        });
     }
 }

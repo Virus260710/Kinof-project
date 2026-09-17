@@ -1,443 +1,135 @@
-# Agent Implementation — SmartLab.Agent
-
-> Windows Worker Service — ไม่ใช้ AI Model
-
-## SmartLab.Agent.csproj
-
-```xml
-<Project Sdk="Microsoft.NET.Sdk.Worker">
-  <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-  </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
-    <PackageReference Include="System.Management" Version="8.0.0" />
-  </ItemGroup>
-</Project>
-```
-
-## Program.cs
-
-```csharp
-using SmartLab.Agent;
-using SmartLab.Agent.Services;
-
-var builder = Host.CreateApplicationBuilder(args);
-builder.Services.AddWindowsService(options => options.ServiceName = "SmartLabAgent");
-builder.Services.AddSingleton<LogQueueService>();
-builder.Services.AddSingleton<ApiClientService>();
-builder.Services.AddSingleton<ProcessMonitorService>();
-builder.Services.AddSingleton<PowerMonitorService>();
-builder.Services.AddSingleton<WebsiteBlockerService>();
-builder.Services.AddHostedService<Worker>();
-
-var host = builder.Build();
-host.Run();
-```
-
-## Worker.cs
-
-```csharp
-using SmartLab.Agent.Services;
-
-namespace SmartLab.Agent;
-
-public class Worker(
-    ILogger<Worker> logger,
-    ApiClientService api,
-    ProcessMonitorService processMonitor,
-    PowerMonitorService powerMonitor,
-    WebsiteBlockerService webBlocker,
-    LogQueueService queue,
-    IConfiguration config) : BackgroundService
-{
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        logger.LogInformation("SmartLab Agent starting...");
-        await api.EnsureRegisteredAsync(stoppingToken);
-        await queue.InitializeAsync();
-        await webBlocker.SyncFromServerAsync(stoppingToken);
-
-        queue.Enqueue("agent_start", new { hostname = Environment.MachineName });
-
-        var heartbeatSec = config.GetValue("SmartLab:HeartbeatIntervalSeconds", 30);
-        var flushSec = config.GetValue("SmartLab:LogFlushIntervalSeconds", 30);
-        var configSyncSec = config.GetValue("SmartLab:ConfigSyncIntervalSeconds", 300);
-
-        var lastHeartbeat = DateTime.MinValue;
-        var lastFlush = DateTime.MinValue;
-        var lastConfigSync = DateTime.MinValue;
-        var bootTime = DateTime.UtcNow;
-
-        processMonitor.Start();
-        powerMonitor.Start();
-
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            var now = DateTime.UtcNow;
-
-            processMonitor.Poll(queue);
-            powerMonitor.Poll(queue);
-
-            if ((now - lastHeartbeat).TotalSeconds >= heartbeatSec)
-            {
-                await api.SendHeartbeatAsync((long)(now - bootTime).TotalSeconds, stoppingToken);
-                lastHeartbeat = now;
-            }
-
-            if ((now - lastFlush).TotalSeconds >= flushSec)
-            {
-                var pending = await queue.DequeueAllAsync();
-                if (pending.Count > 0)
-                    await api.SendLogsAsync(pending, stoppingToken);
-                lastFlush = now;
-            }
-
-            if ((now - lastConfigSync).TotalSeconds >= configSyncSec)
-            {
-                await webBlocker.SyncFromServerAsync(stoppingToken);
-                lastConfigSync = now;
-            }
-
-            await Task.Delay(1000, stoppingToken);
-        }
-
-        queue.Enqueue("agent_stop", new { });
-        processMonitor.Stop();
-    }
-}
-```
-
-## Services/LogQueueService.cs
-
-```csharp
-using System.Text.Json;
-using Microsoft.Data.Sqlite;
-
-namespace SmartLab.Agent.Services;
-
-public class LogQueueService
-{
-    private readonly string _dbPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "SmartLab", "queue.db");
-
-    public async Task InitializeAsync()
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(_dbPath)!);
-        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
-        await conn.OpenAsync();
-        await new SqliteCommand("""
-            CREATE TABLE IF NOT EXISTS pending_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_type TEXT NOT NULL,
-                data_json TEXT NOT NULL,
-                timestamp TEXT NOT NULL
-            )
-            """, conn).ExecuteNonQueryAsync();
-    }
-
-    public void Enqueue(string eventType, object data)
-    {
-        using var conn = new SqliteConnection($"Data Source={_dbPath}");
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "INSERT INTO pending_logs (event_type, data_json, timestamp) VALUES (@t, @d, @ts)";
-        cmd.Parameters.AddWithValue("@t", eventType);
-        cmd.Parameters.AddWithValue("@d", JsonSerializer.Serialize(data));
-        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
-        cmd.ExecuteNonQuery();
-    }
-
-    public async Task<List<LogEntry>> DequeueAllAsync()
-    {
-        var entries = new List<LogEntry>();
-        await using var conn = new SqliteConnection($"Data Source={_dbPath}");
-        await conn.OpenAsync();
-
-        await using (var read = conn.CreateCommand())
-        {
-            read.CommandText = "SELECT event_type, data_json, timestamp FROM pending_logs ORDER BY id";
-            await using var reader = await read.ExecuteReaderAsync();
-            while (await reader.ReadAsync())
-            {
-                entries.Add(new LogEntry(
-                    reader.GetString(0),
-                    JsonDocument.Parse(reader.GetString(1)).RootElement,
-                    DateTime.Parse(reader.GetString(2))));
-            }
-        }
-
-        await new SqliteCommand("DELETE FROM pending_logs", conn).ExecuteNonQueryAsync();
-        return entries;
-    }
-}
-
-public record LogEntry(string EventType, JsonElement Data, DateTime Timestamp);
-```
-
-## Services/ApiClientService.cs
-
-```csharp
-using System.Net.Http.Json;
-using System.Text.Json;
-
-namespace SmartLab.Agent.Services;
-
-public class ApiClientService(IConfiguration config, ILogger<ApiClientService> logger)
-{
-    private readonly HttpClient _http = new();
-    private Guid _agentId;
-    private string _apiKey = config["SmartLab:ApiKey"] ?? "";
-
-    public async Task EnsureRegisteredAsync(CancellationToken ct)
-    {
-        if (!string.IsNullOrEmpty(_apiKey)) return;
-
-        var baseUrl = config["SmartLab:ApiBaseUrl"] ?? "http://localhost:5000";
-        var body = new
-        {
-            seatId = config["SmartLab:SeatId"] ?? "seat-01",
-            roomId = config["SmartLab:RoomId"] ?? "lab-a",
-            hostname = Environment.MachineName,
-            osVersion = Environment.OSVersion.ToString()
-        };
-
-        var resp = await _http.PostAsJsonAsync($"{baseUrl}/api/agent/register", body, ct);
-        resp.EnsureSuccessStatusCode();
-        var result = await resp.Content.ReadFromJsonAsync<JsonElement>(ct);
-        _agentId = result.GetProperty("agentId").GetGuid();
-        _apiKey = result.GetProperty("apiKey").GetString()!;
-        logger.LogInformation("Registered agent {AgentId}", _agentId);
-    }
-
-    private void ApplyAuth()
-    {
-        _http.DefaultRequestHeaders.Remove("X-Api-Key");
-        _http.DefaultRequestHeaders.Add("X-Api-Key", _apiKey);
-    }
-
-    public async Task SendHeartbeatAsync(long uptimeSeconds, CancellationToken ct)
-    {
-        ApplyAuth();
-        var baseUrl = config["SmartLab:ApiBaseUrl"] ?? "http://localhost:5000";
-        await _http.PostAsJsonAsync($"{baseUrl}/api/agent/heartbeat", new
-        {
-            agentId = _agentId,
-            timestamp = DateTime.UtcNow,
-            uptimeSeconds
-        }, ct);
-    }
-
-    public async Task SendLogsAsync(List<LogEntry> logs, CancellationToken ct)
-    {
-        ApplyAuth();
-        var baseUrl = config["SmartLab:ApiBaseUrl"] ?? "http://localhost:5000";
-        await _http.PostAsJsonAsync($"{baseUrl}/api/agent/logs", new
-        {
-            agentId = _agentId,
-            logs = logs.Select(l => new { eventType = l.EventType, data = l.Data, timestamp = l.Timestamp })
-        }, ct);
-    }
-
-    public async Task<JsonElement?> GetConfigAsync(CancellationToken ct)
-    {
-        ApplyAuth();
-        var baseUrl = config["SmartLab:ApiBaseUrl"] ?? "http://localhost:5000";
-        var resp = await _http.GetAsync($"{baseUrl}/api/agent/config", ct);
-        if (!resp.IsSuccessStatusCode) return null;
-        return await resp.Content.ReadFromJsonAsync<JsonElement>(ct);
-    }
-}
-```
-
-## Services/ProcessMonitorService.cs
-
-```csharp
-namespace SmartLab.Agent.Services;
-
-public class ProcessMonitorService(ILogger<ProcessMonitorService> logger)
-{
-    private HashSet<int> _knownPids = new();
-    private Dictionary<int, string> _pidToName = new();
-    private bool _running;
-
-    public void Start()
-    {
-        _running = true;
-        foreach (var p in System.Diagnostics.Process.GetProcesses())
-        {
-            try
-            {
-                _knownPids.Add(p.Id);
-                _pidToName[p.Id] = p.ProcessName;
-            }
-            catch { /* access denied */ }
-        }
-    }
-
-    public void Stop() => _running = false;
-
-    public void Poll(LogQueueService queue)
-    {
-        if (!_running) return;
-        var current = new HashSet<int>();
-        var currentNames = new Dictionary<int, string>();
-
-        foreach (var p in System.Diagnostics.Process.GetProcesses())
-        {
-            try
-            {
-                current.Add(p.Id);
-                currentNames[p.Id] = p.ProcessName;
-                if (!_knownPids.Contains(p.Id))
-                {
-                    queue.Enqueue("process_start", new
-                    {
-                        processName = p.ProcessName,
-                        pid = p.Id,
-                        exePath = TryGetPath(p)
-                    });
-                }
-            }
-            catch { /* skip */ }
-        }
-
-        foreach (var oldPid in _knownPids.Except(current))
-        {
-            _pidToName.TryGetValue(oldPid, out var name);
-            queue.Enqueue("process_stop", new { processName = name ?? "unknown", pid = oldPid });
-        }
-
-        _knownPids = current;
-        _pidToName = currentNames;
-    }
-
-    private static string TryGetPath(System.Diagnostics.Process p)
-    {
-        try { return p.MainModule?.FileName ?? ""; }
-        catch { return ""; }
-    }
-}
-```
-
-## Services/PowerMonitorService.cs
-
-```csharp
-namespace SmartLab.Agent.Services;
-
-public class PowerMonitorService
-{
-    private bool _bootLogged;
-
-    public void Start()
-    {
-        // Boot event logged on first Poll
-    }
-
-    public void Poll(LogQueueService queue)
-    {
-        if (_bootLogged) return;
-        queue.Enqueue("power_boot", new { bootTime = DateTime.UtcNow });
-        _bootLogged = true;
-    }
-}
-```
-
-## Services/WebsiteBlockerService.cs
-
-```csharp
-using System.Text;
-using System.Text.Json;
-
-namespace SmartLab.Agent.Services;
-
-public class WebsiteBlockerService(ApiClientService api, ILogger<WebsiteBlockerService> logger)
-{
-    private const string MarkerStart = "# SMARTLAB-BLOCK-START";
-    private const string MarkerEnd = "# SMARTLAB-BLOCK-END";
-    private readonly string _hostsPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.System),
-        "drivers", "etc", "hosts");
-
-    public async Task SyncFromServerAsync(CancellationToken ct)
-    {
-        var config = await api.GetConfigAsync(ct);
-        if (config is null) return;
-
-        var patterns = config.Value.GetProperty("blacklist")
-            .EnumerateArray()
-            .Select(b => b.GetProperty("urlPattern").GetString()!)
-            .ToList();
-
-        ApplyHostsBlock(patterns);
-        logger.LogInformation("Synced {Count} blocked domains", patterns.Count);
-    }
-
-    private void ApplyHostsBlock(List<string> domains)
-    {
-        var lines = File.Exists(_hostsPath)
-            ? File.ReadAllLines(_hostsPath).ToList()
-            : new List<string>();
-
-        // Remove old block section
-        var startIdx = lines.FindIndex(l => l.Trim() == MarkerStart);
-        var endIdx = lines.FindIndex(l => l.Trim() == MarkerEnd);
-        if (startIdx >= 0 && endIdx >= 0)
-            lines.RemoveRange(startIdx, endIdx - startIdx + 1);
-
-        // Add new block section
-        lines.Add(MarkerStart);
-        foreach (var domain in domains)
-            lines.Add($"127.0.0.1 {domain}");
-        lines.Add(MarkerEnd);
-
-        File.WriteAllLines(_hostsPath, lines, Encoding.UTF8);
-    }
-}
-```
-
-## appsettings.json
+# KINOF Windows Agent
+
+โค้ดจริงอยู่ที่ `windows-agent/` — Worker + หน้าล็อกอิน WinForms (`Kinof.Agent`)  
+**ไม่ใช้ AI Model** · อย่า copy จาก repo smartlab
+
+Header ทุก request: `X-Agent-Key`  
+Backend: `http://localhost:5106`
+
+## สิ่งที่ทำแล้ว
+
+| งาน | พฤติกรรม |
+|-----|----------|
+| ผูกเครื่อง | `POST /api/agent/register` ด้วย API key ที่ผูก `seat_id` |
+| Heartbeat | `POST /api/agent/heartbeat` ทุก 20 วินาที (ตั้งได้) — ออนไลน์ถ้าไม่เกิน 60 วินาที |
+| ล็อกอินเครื่อง | บัญชี KINOF + OTP อีเมล → ที่นั่ง `Occupied` |
+| ออกจากระบบ | ปุ่มบน Agent / ผู้ดูแลสั่งออกจากระบบ → `Available` |
+| ซ่อนถาดระบบ | ปิดหน้าต่างแล้วยังทำงานที่ไอคอนถาด — ที่นั่งว่างเมื่อกดออกจากระบบเครื่องนี้เท่านั้น |
+| บล็อกเว็บ | `GET /api/agent/website-blacklist` แล้วเขียนช่วง `# KINOF-BLOCK-START` … `# KINOF-BLOCK-END` ใน hosts (รายการมาจากโดเมนที่ใส่เอง + หมวด UT1 ที่นำเข้าแบบจำกัดจำนวน) |
+| บล็อกโปรแกรม | `GET /api/agent/program-blacklist` ตามรอบ heartbeat แล้วปิด process ที่ตรง `process_name` |
+| รายการอนุญาต | heartbeat คืน `programAllowlist` — ใช้แยกโปรแกรมที่ไม่รู้จัก |
+| สรุปไม่รู้จัก | ทุก 60 วินาที ส่ง `POST /api/agent/logs` event `unknown_program` (ไม่ใช่ระบบ Windows ไม่ใช่ allowlist ไม่ใช่ blacklist) รวมชื่อละไม่เกินครั้งละ 5 นาที — **ไม่ขึ้นคิวน่าสงสัย** |
+
+นโยบายที่นั่ง (อย่ากลับไปจ่ายที่นั่งที่ Kiosk):
+
+- Kiosk = ตรวจสิทธิ์เข้าห้องเท่านั้น ไม่จองที่นั่ง
+- ที่นั่ง Occupied เมื่อล็อกอินบน Agent
+- ออกจากระบบเครื่องนี้เท่านั้นที่ปล่อยที่นั่ง
+
+## ไฟล์
+
+| ไฟล์ | หน้าที่ |
+|------|--------|
+| `Program.cs` | Host + หน้า `LoginForm` (อย่าติดตั้งเป็น Windows Service ในรอบนี้ เพราะต้องมี UI) |
+| `Worker.cs` | ลูป heartbeat / ซิงค์ blacklist / สแกนโปรแกรม |
+| `AgentApiClient.cs` | HTTP ไป backend |
+| `LoginForm.cs` | ล็อกอิน / OTP / ออกจากระบบ / ถาดระบบ |
+| `HostsWebsiteBlocker.cs` | เขียน hosts (ต้อง Administrator) |
+| `ProgramProcessBlocker.cs` | ปิด process ตามรายการบล็อก และสรุป process ที่ไม่รู้จัก |
+| `appsettings.json` | `ApiBaseUrl`, `ApiKey`, ช่วงเวลา heartbeat / sync / สแกน |
 
 ```json
 {
-  "SmartLab": {
-    "ApiBaseUrl": "http://localhost:5000",
-    "ApiKey": "",
-    "SeatId": "seat-01",
-    "RoomId": "lab-a",
-    "HeartbeatIntervalSeconds": 30,
-    "LogFlushIntervalSeconds": 30,
-    "ConfigSyncIntervalSeconds": 300
-  },
-  "Logging": {
-    "LogLevel": {
-      "Default": "Information"
-    }
+  "Kinof": {
+    "ApiBaseUrl": "http://localhost:5106",
+    "ApiKey": "dev-agent-key-1",
+    "HeartbeatIntervalSeconds": 20,
+    "BlacklistSyncIntervalSeconds": 120,
+    "ProcessScanIntervalSeconds": 3,
+    "UnknownProgramReportIntervalSeconds": 60
   }
 }
 ```
 
-## install/register-agent.ps1
+คีย์ dev จาก seeder: `dev-agent-key-1` = ที่นั่ง 1 ห้องแรก, `dev-agent-key-2` = ที่นั่ง 2  
+คีย์จริง: แอดมิน `POST /api/admin/agents` ด้วย `{ "seatId": "..." }` — ได้ `apiKey` ครั้งเดียว
 
-```powershell
-param(
-    [Parameter(Mandatory=$true)][string]$SeatId,
-    [Parameter(Mandatory=$true)][string]$RoomId,
-    [string]$ApiUrl = "http://localhost:5000"
-)
+Kiosk ประตูใช้ header คนละตัว: `X-Kiosk-Key` ผูกห้อง (`dev-kiosk-key-1` = ห้องแรกตามชื่อ) ไม่ผูกที่นั่ง
 
-$settingsPath = Join-Path $PSScriptRoot "..\appsettings.json"
-$settings = Get-Content $settingsPath | ConvertFrom-Json
-$settings.SmartLab.SeatId = $SeatId
-$settings.SmartLab.RoomId = $RoomId
-$settings.SmartLab.ApiBaseUrl = $ApiUrl
-$settings | ConvertTo-Json -Depth 5 | Set-Content $settingsPath
-Write-Host "Agent configured: Seat=$SeatId Room=$RoomId API=$ApiUrl"
+## บล็อกโปรแกรม
+
+1. แอดมินตั้งรายการที่ Monitor → **บล็อกโปรแกรม** (`GET/POST/DELETE /api/admin/tracking/program-blacklist`)
+2. Seed เริ่มต้นมี `discord.exe`, `steam.exe`
+3. ทุก heartbeat Agent ดึง `GET /api/agent/program-blacklist` → `{ processNames: ["discord.exe", "steam.exe"] }`
+4. ทุก 3 วินาที สแกน process ถ้าชื่อตรง (เช่น `discord` / `discord.exe`) แล้ว `Process.Kill` เฉพาะ process นั้น
+5. ส่ง `POST /api/agent/logs` event `program` (`suspicious: true`) ให้แท็บ Monitor **น่าสงสัย** ขึ้นคิวรอแอดมินตรวจ ดี/แย่
+
+## รายการอนุญาต + ของไม่รู้จัก
+
+1. แอดมินตั้งแท็บ Monitor → **อนุญาตโปรแกรม** (`GET/POST/DELETE /api/admin/tracking/program-allowlist`) — seed มีเบราว์เซอร์ / VS Code / Office ฯลฯ
+2. Heartbeat คืน `programAllowlist` คู่กับ `programBlacklist`
+3. Agent สแกน process ที่ไม่ใช่ระบบ Windows (`C:\Windows\...`) ไม่ใช่รายการอนุญาต และไม่ใช่รายการห้าม
+4. ส่งสรุป `unknown_program` (`suspicious: false`) — Monitor แท็บ **ไม่รู้จัก** แสดงจำนวนครั้งและจำนวนเครื่อง **ไม่ขึ้นคิวทีละคลิก และไม่หักคะแนน**
+5. ไม่ส่งทุกแท็บเบราว์เซอร์ขึ้น Monitor
+
+## หมวดเว็บ UT1
+
+แอดมินเลือกหมวดที่ Monitor → **บล็อกเว็บ** แล้วกดนำเข้า — backend ดึง `https://dsi.ut-capitole.fr/blacklists/download/{category}.tar.gz` เอาไฟล์ `domains` มาใส่ `website_blacklist` สูงสุด 250 โดเมนต่อหมวด (เรียงโดเมนสั้นก่อน) ตั้ง `category` ตามรหัสหมวด และ `source = ut1`
+
+Agent เขียน hosts จากรายการนี้เหมือนโดเมนที่ใส่เอง **ไม่เททั้งไฟล์หลายหมื่นโดเมน**
+
+## สิ่งที่ห้ามทำตอนปิดโปรแกรม
+
+- ไม่เรียก `shutdown` / ไม่ปิดเครื่อง
+- ไม่ปิด process ของตัว Agent (`Kinof.Agent`) และ process แม่ (เช่น `dotnet` ตอน `dotnet run`)
+- ไม่ปิด process ระบบ Windows (`csrss`, `lsass`, `winlogon`, `svchost`, `explorer`, Defender ฯลฯ)
+- ไม่ปิด process session 0 (บริการระบบ)
+- ถ้าแอดมินใส่ชื่อ process ระบบในรายการ จะถูกข้ามที่ Agent
+
+ต้องรัน as Administrator จึงจะปิด process ของผู้ใช้อื่นและเขียน hosts ได้
+
+## API ที่ Agent ใช้
+
+```
+POST /api/agent/register
+POST /api/agent/heartbeat
+POST /api/agent/logs
+GET  /api/agent/website-blacklist
+GET  /api/agent/program-blacklist
+GET  /api/agent/program-allowlist
+POST /api/agent/session/login
+POST /api/agent/session/verify-otp
+POST /api/agent/session/resend-otp
+POST /api/agent/session/logout
 ```
 
-> **หมายเหตุ:** การแก้ hosts file ต้องรัน Agent ด้วยสิทธิ์ Administrator
+ตัวอย่าง log ตอนบล็อกโปรแกรม:
+
+```json
+{
+  "events": [
+    {
+      "eventType": "program",
+      "at": "2026-09-17T10:00:00+00:00",
+      "data": {
+        "program": "discord.exe",
+        "activity": "บล็อก discord.exe",
+        "suspicious": true,
+        "matchedPattern": "discord.exe",
+        "source": "agent"
+      }
+    }
+  ]
+}
+```
+
+## วิธีรัน
+
+เปิด PowerShell **Run as administrator**:
+
+```powershell
+cd C:\Users\User\Desktop\Kinof-project\windows-agent
+dotnet run
+```
+
+Backend ต้องฟังพอร์ต 5106 ก่อน รายละเอียด VM / ทดสอบ hosts ดู `windows-agent/README.md`

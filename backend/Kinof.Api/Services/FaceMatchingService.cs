@@ -4,7 +4,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Kinof.Api.Services;
 
-public sealed record FaceMatch(Guid UserId, double Score, bool Matched);
+public sealed record FaceMatch(Guid UserId, double Score, bool Matched, double SecondScore = 0);
+
+public sealed record FaceScore(Guid UserId, double Score);
 
 /// <summary>
 /// 1:N face identification inside the API. Embeddings are 512-d unit vectors stored as
@@ -17,16 +19,24 @@ public sealed class FaceMatchingService(AppDbContext db, ILogger<FaceMatchingSer
     /// <summary>docs/AUTH_ADAPTIVE.md — 0.5 ขึ้นไปผ่านทันที, ต่ำกว่านั้นไปทาง Entry OTP.</summary>
     public const double MatchThreshold = 0.5;
 
+    /// <summary>
+    /// Best match must beat the runner-up by this much so lookalike enrolled accounts
+    /// are not treated as a unique identification.
+    /// </summary>
+    public const double MinScoreGap = 0.08;
+
     public const int EmbeddingLength = 512;
 
     /// <summary>
     /// Returns the closest enrolled user, or <c>null</c> when nobody in the system has a
     /// usable embedding yet.
     /// </summary>
-    public async Task<FaceMatch?> IdentifyAsync(float[] probe, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<FaceScore>> RankAsync(
+        float[] probe,
+        CancellationToken cancellationToken)
     {
         if (probe.Length != EmbeddingLength)
-            return null;
+            return [];
 
         var candidates = await db.FaceEmbeddings
             .AsNoTracking()
@@ -38,7 +48,7 @@ public sealed class FaceMatchingService(AppDbContext db, ILogger<FaceMatchingSer
                 (embedding, user) => new { UserId = user.Id, embedding.Embedding })
             .ToListAsync(cancellationToken);
 
-        FaceMatch? best = null;
+        var ranked = new List<FaceScore>(candidates.Count);
         foreach (var candidate in candidates)
         {
             if (!TryReadEmbedding(candidate.Embedding, out var stored))
@@ -49,12 +59,24 @@ public sealed class FaceMatchingService(AppDbContext db, ILogger<FaceMatchingSer
                 continue;
             }
 
-            var score = CosineSimilarity(probe, stored);
-            if (best is null || score > best.Score)
-                best = new FaceMatch(candidate.UserId, score, score >= MatchThreshold);
+            ranked.Add(new FaceScore(candidate.UserId, CosineSimilarity(probe, stored)));
         }
 
-        return best;
+        return ranked
+            .OrderByDescending(item => item.Score)
+            .ToList();
+    }
+
+    public async Task<FaceMatch?> IdentifyAsync(float[] probe, CancellationToken cancellationToken)
+    {
+        var ranked = await RankAsync(probe, cancellationToken);
+        if (ranked.Count == 0)
+            return null;
+
+        var best = ranked[0];
+        var secondScore = ranked.Count > 1 ? ranked[1].Score : 0;
+        var unique = best.Score >= MatchThreshold && best.Score - secondScore >= MinScoreGap;
+        return new FaceMatch(best.UserId, best.Score, unique, secondScore);
     }
 
     public static double CosineSimilarity(float[] left, float[] right)
@@ -79,14 +101,14 @@ public sealed class FaceMatchingService(AppDbContext db, ILogger<FaceMatchingSer
         try
         {
             var values = JsonSerializer.Deserialize<float[]>(json);
-            if (values is not { Length: EmbeddingLength } ||
-                values.Any(value => !float.IsFinite(value)))
+            if (values is { Length: EmbeddingLength } &&
+                values.All(value => float.IsFinite(value)))
             {
-                return false;
+                embedding = values;
+                return true;
             }
 
-            embedding = values;
-            return true;
+            return false;
         }
         catch (JsonException)
         {

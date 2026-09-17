@@ -170,6 +170,77 @@ export async function apiFetch(path, options = {}) {
   return parseResponse(response);
 }
 
+function fileNameFromDisposition(header, fallback) {
+  if (!header) return fallback;
+  const utf = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf?.[1]) {
+    try {
+      return decodeURIComponent(utf[1].trim());
+    } catch {
+      return utf[1].trim();
+    }
+  }
+  const ascii = header.match(/filename="?([^";]+)"?/i);
+  return ascii?.[1]?.trim() || fallback;
+}
+
+export async function apiDownload(path, options = {}) {
+  const { fileName: fallbackName, ...fetchOptions } = options;
+  const auth = readStoredAuth();
+  const headers = {
+    ...(fetchOptions.headers ?? {}),
+  };
+  if (!(fetchOptions.body instanceof FormData)) headers["Content-Type"] = "application/json";
+  if (auth?.accessToken) {
+    headers.Authorization = `Bearer ${auth.accessToken}`;
+  }
+
+  let response = await fetch(`${API_URL}${path}`, {
+    ...fetchOptions,
+    headers,
+  });
+
+  if (response.status === 401 && auth?.refreshToken) {
+    try {
+      const refreshed = await post("/api/auth/refresh", { refreshToken: auth.refreshToken });
+      const nextAuth = {
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken,
+        user: refreshed.user,
+        sessionId: auth.sessionId,
+      };
+      storeAuth(nextAuth);
+      headers.Authorization = `Bearer ${nextAuth.accessToken}`;
+      response = await fetch(`${API_URL}${path}`, { ...fetchOptions, headers });
+    } catch {
+      clearStoredAuth();
+      throw new Error("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่");
+    }
+  }
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message ?? "ดาวน์โหลดไม่สำเร็จ กรุณาลองใหม่");
+  }
+
+  const blob = await response.blob();
+  return {
+    blob,
+    fileName: fileNameFromDisposition(response.headers.get("Content-Disposition"), fallbackName ?? "download"),
+  };
+}
+
+export function saveBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function login(username, password) {
   return post("/api/auth/login", { username, password });
 }

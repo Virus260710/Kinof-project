@@ -123,7 +123,9 @@ export default function EntryOtp({ myBookings = [], notify }) {
       applyActive({ ...result, hasActive: true });
       notify?.(result.deliveryMode === "smtp"
         ? `ส่งรหัสเข้าห้องไปที่ ${result.maskedEmail} แล้ว`
-        : `สร้างรหัสแล้ว — ดู OTP ในหน้าต่าง backend (ส่งไป ${result.maskedEmail})`);
+        : result.deliveryMode === "console"
+          ? `สร้างรหัสแล้ว — ดู OTP ในหน้าต่าง backend (ส่งไป ${result.maskedEmail})`
+          : `สร้างรหัสแล้ว แต่ส่งอีเมลไม่สำเร็จ`);
     } catch (requestError) {
       setError(requestError.message);
       refreshActive().catch(() => {});
@@ -140,7 +142,9 @@ export default function EntryOtp({ myBookings = [], notify }) {
       applyActive({ ...result, hasActive: true });
       notify?.(result.deliveryMode === "smtp"
         ? `ส่งรหัสใหม่ไปที่ ${result.maskedEmail} แล้ว`
-        : `สร้างรหัสใหม่แล้ว — ดู OTP ในหน้าต่าง backend`);
+        : result.deliveryMode === "console"
+          ? `สร้างรหัสใหม่แล้ว — ดู OTP ในหน้าต่าง backend`
+          : `สร้างรหัสใหม่แล้ว แต่ส่งอีเมลไม่สำเร็จ`);
     } catch (requestError) {
       setError(requestError.message);
       refreshActive().catch(() => {});

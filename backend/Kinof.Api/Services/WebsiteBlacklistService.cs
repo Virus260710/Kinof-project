@@ -18,6 +18,7 @@ public sealed class WebsiteBlacklistService(AppDbContext db, AuditLogService aud
                 id = entry.Id,
                 domain = entry.UrlPattern,
                 category = entry.Category,
+                source = entry.Source,
                 reason = entry.Category,
                 addedAt = entry.CreatedAt
             })
@@ -46,6 +47,7 @@ public sealed class WebsiteBlacklistService(AppDbContext db, AuditLogService aud
         {
             UrlPattern = domain,
             Category = category,
+            Source = Ut1WebsiteCategoryService.SourceManual,
             CreatedBy = actorUserId
         };
         db.WebsiteBlacklist.Add(entry);
@@ -63,6 +65,7 @@ public sealed class WebsiteBlacklistService(AppDbContext db, AuditLogService aud
             id = entry.Id,
             domain = entry.UrlPattern,
             category = entry.Category,
+            source = entry.Source,
             reason = entry.Category,
             addedAt = entry.CreatedAt
         });
@@ -87,7 +90,7 @@ public sealed class WebsiteBlacklistService(AppDbContext db, AuditLogService aud
         return Results.Ok(new { id, domain = entry.UrlPattern });
     }
 
-    private static string? Normalize(string? domain)
+    public static string? Normalize(string? domain)
     {
         var value = domain?.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(value)) return null;

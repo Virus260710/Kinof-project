@@ -4,14 +4,21 @@ import Card from "../../components/Card";
 import Pill from "../../components/Pill";
 import Button from "../../components/Button";
 import { User, Mail, Hash, BookOpen, AlertCircle, Award, KeyRound, ArrowRight, Camera } from "lucide-react";
-import { penaltyHistory } from "../../data/mockData";
 import { getMySchedule, toProfileScheduleRows } from "../../api/schedules";
+import { getBehavior } from "../../api/behavior";
 
-// TODO(backend): replace score and penalty history when profile-stat endpoints are available.
-export default function UserProfile({ auth, userScore = 95, setPage }) {
+const formatPenaltyDate = (value) => new Date(value).toLocaleDateString("th-TH", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+
+export default function UserProfile({ auth, setPage }) {
   const navigate = useNavigate();
   const user = auth?.user;
   const [scheduleRows, setScheduleRows] = useState([]);
+  const [userScore, setUserScore] = useState(100);
+  const [penalties, setPenalties] = useState([]);
   const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "ผู้ใช้งาน";
   const userTypeLabel = user?.userType === "student" ? "นักศึกษา" : "บุคคลภายนอก";
   const scoreBarClass = userScore >= 80 ? "bg-teal-500" : userScore >= 50 ? "bg-gold-gradient" : "bg-rose-500";
@@ -25,6 +32,18 @@ export default function UserProfile({ auth, userScore = 95, setPage }) {
       .then((items) => setScheduleRows(toProfileScheduleRows(items)))
       .catch(() => setScheduleRows([]));
   }, [user?.userType, user?.id]);
+
+  useEffect(() => {
+    getBehavior()
+      .then((data) => {
+        setUserScore(typeof data.score === "number" ? data.score : 100);
+        setPenalties(Array.isArray(data.penalties) ? data.penalties : []);
+      })
+      .catch(() => {
+        setUserScore(100);
+        setPenalties([]);
+      });
+  }, [user?.id]);
 
   return (
     <div className="w-full max-w-6xl mx-auto">
@@ -149,6 +168,9 @@ export default function UserProfile({ auth, userScore = 95, setPage }) {
                   style={{ width: `${userScore}%` }}
                 />
               </div>
+              <p className="text-[11px] text-muted mt-2">
+                คะแนนต่ำกว่า 50 จองห้องไม่ได้ · รีเซ็ตเป็น 100 ทุกวันที่ 1 ของเดือน
+              </p>
             </div>
           </div>
 
@@ -159,14 +181,14 @@ export default function UserProfile({ auth, userScore = 95, setPage }) {
             </div>
 
             <div className="flex flex-col gap-2">
-              {penaltyHistory.length > 0 ? (
-                penaltyHistory.map((item) => (
+              {penalties.length > 0 ? (
+                penalties.map((item) => (
                   <div
                     key={item.id}
                     className="border border-rose-100 rounded-xl p-3 bg-rose-50/30 text-xs"
                   >
                     <div className="font-semibold text-rose-800 mb-0.5">
-                      {item.date} • หัก {item.points} คะแนน
+                      {formatPenaltyDate(item.at)} • หัก {item.points} คะแนน
                     </div>
                     <div className="text-slate-600 font-light leading-relaxed text-xs">
                       สาเหตุ: {item.reason}

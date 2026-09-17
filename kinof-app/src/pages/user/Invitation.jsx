@@ -8,7 +8,7 @@ function formatDate(value) {
   return new Intl.DateTimeFormat("th-TH", { dateStyle: "long" }).format(parseStoredDate(value));
 }
 
-export default function Invitation({ notify, onInvitationAccepted }) {
+export default function Invitation({ notify, onInvitationAccepted, onInvitationsChanged }) {
   const [invitations, setInvitations] = useState([]);
   const [selected, setSelected] = useState(null);
   const [declineTarget, setDeclineTarget] = useState(null);
@@ -34,6 +34,7 @@ export default function Invitation({ notify, onInvitationAccepted }) {
       setInvitations((current) => current.filter((item) => item.id !== selected.id));
       setSelected(null);
       onInvitationAccepted?.(booking);
+      onInvitationsChanged?.();
       notify?.("ยืนยันการเข้าร่วมกลุ่มเรียบร้อยแล้ว");
     } catch (error) {
       notify?.(error.message);
@@ -49,6 +50,7 @@ export default function Invitation({ notify, onInvitationAccepted }) {
       await declineInvitation(declineTarget.id);
       setInvitations((current) => current.filter((item) => item.id !== declineTarget.id));
       setDeclineTarget(null);
+      onInvitationsChanged?.();
       notify?.("ปฏิเสธคำเชิญเรียบร้อยแล้ว");
     } catch (error) {
       notify?.(error.message);

@@ -195,7 +195,6 @@ dotnet run --project agent/SmartLab.Agent
 - 2FA TOTP
 - QR Booking
 - PostgreSQL migration (production)
-- Excel export
 
 ---
 

@@ -16,6 +16,17 @@ var jwtKey = builder.Configuration["Jwt:Key"]
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("Default")));
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection("Email"));
+if (!builder.Environment.IsDevelopment())
+{
+    var email = builder.Configuration.GetSection("Email");
+    if (string.IsNullOrWhiteSpace(email["SmtpHost"]) ||
+        string.IsNullOrWhiteSpace(email["Username"]) ||
+        string.IsNullOrWhiteSpace(email["Password"]))
+    {
+        throw new InvalidOperationException(
+            "Production requires Email:SmtpHost, Email:Username, and Email:Password via user-secrets or environment variables. Do not put the SMTP password in committed appsettings.");
+    }
+}
 builder.Services.Configure<FaceServiceOptions>(builder.Configuration.GetSection("FaceService"));
 builder.Services.AddScoped<IEmailSender, EmailSender>();
 builder.Services.AddHttpClient<IFaceEmbeddingClient, FaceEmbeddingClient>((serviceProvider, client) =>
@@ -31,6 +42,7 @@ builder.Services.AddScoped<EntryOtpService>();
 builder.Services.AddScoped<EntryService>();
 builder.Services.AddScoped<FaceMatchingService>();
 builder.Services.AddScoped<KioskService>();
+builder.Services.AddScoped<KioskDeviceService>();
 builder.Services.AddSingleton<KioskAttemptLimiter>();
 builder.Services.AddScoped<BookingService>();
 builder.Services.AddScoped<InvitationService>();
@@ -42,11 +54,23 @@ builder.Services.AddScoped<ScheduleService>();
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<AgentService>();
 builder.Services.AddScoped<TrackingService>();
+builder.Services.AddScoped<ExportService>();
 builder.Services.AddScoped<WebsiteBlacklistService>();
+builder.Services.AddScoped<ProgramBlacklistService>();
+builder.Services.AddScoped<ProgramAllowlistService>();
+builder.Services.AddHttpClient<Ut1WebsiteCategoryService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(90);
+    client.DefaultRequestHeaders.UserAgent.Add(new System.Net.Http.Headers.ProductInfoHeaderValue("KINOF-Lab", "1.0"));
+});
+builder.Services.AddScoped<NavBadgeService>();
+builder.Services.AddScoped<BehaviorScoreService>();
+builder.Services.AddHostedService<BehaviorScoreWorker>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
     policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
         .AllowAnyHeader()
-        .AllowAnyMethod()));
+        .AllowAnyMethod()
+        .WithExposedHeaders("Content-Disposition")));
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -89,6 +113,28 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
+
+app.MapGet("/api/nav-badges", (
+    ClaimsPrincipal user,
+    NavBadgeService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.GetAsync(user, userId.Value, cancellationToken);
+}).RequireAuthorization();
+
+app.MapGet("/api/behavior", (
+    ClaimsPrincipal user,
+    BehaviorScoreService service,
+    CancellationToken cancellationToken) =>
+{
+    var userId = AuthService.GetUserId(user);
+    return userId is null
+        ? Task.FromResult(Results.Unauthorized())
+        : service.GetMineAsync(userId.Value, cancellationToken);
+}).RequireAuthorization();
 
 var problemReports = app.MapGroup("/api/problem-reports").RequireAuthorization();
 problemReports.MapPost("/", async (

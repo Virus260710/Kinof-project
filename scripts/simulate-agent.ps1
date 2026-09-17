@@ -4,9 +4,10 @@
 
 .DESCRIPTION
     Registers with the backend using an agent API key, then loops sending heartbeats
-    and a small stream of sample events (login / program / website / suspicious).
-    The seeded development keys are "dev-agent-key-1" and "dev-agent-key-2", which are
-    bound to the first two seats of the first lab room.
+    and sample program / website / suspicious events for Monitor.
+    Seat occupancy is not simulated here — login at windows-agent with a KINOF account
+    (password + email OTP). Use -Logout to call POST /api/agent/session/logout.
+    The seeded development keys are "dev-agent-key-1" and "dev-agent-key-2".
 
 .EXAMPLE
     ./scripts/simulate-agent.ps1
@@ -79,21 +80,14 @@ $registration = Invoke-Agent -Path "/api/agent/register" -Body @{ apiKey = $ApiK
 Write-Host ("  register -> agentId={0} seatId={1}" -f $registration.agentId, $registration.seatId) -ForegroundColor Green
 
 if ($Logout) {
-    Send-Events -Events @(
-        @{ eventType = "logout"; data = (New-EventData); at = (Get-Date).ToUniversalTime().ToString("o") }
-    )
-    Write-Host "ออกจากระบบแล้ว" -ForegroundColor Yellow
+    Invoke-Agent -Path "/api/agent/session/logout" -Body @{}
+    Write-Host "ออกจากระบบแล้ว ที่นั่งเป็น Available" -ForegroundColor Yellow
     exit 0
 }
 
 if (-not $HeartbeatOnly) {
     $now = (Get-Date).ToUniversalTime()
     Send-Events -Events @(
-        @{
-            eventType = "login"
-            data      = (New-EventData)
-            at        = $now.AddMinutes(-25).ToString("o")
-        },
         @{
             eventType = "program"
             data      = (New-EventData @{ program = $Program; durationMinutes = 24 })
@@ -110,6 +104,7 @@ if (-not $HeartbeatOnly) {
             at        = $now.AddMinutes(-3).ToString("o")
         }
     )
+    Write-Host "  (ที่นั่ง Occupied ต้องล็อกอินบัญชี KINOF ที่ windows-agent — สคริปต์นี้ไม่ปั้น login จากชื่อ Windows)" -ForegroundColor DarkGray
 }
 
 $deadline = (Get-Date).AddSeconds($DurationSeconds)

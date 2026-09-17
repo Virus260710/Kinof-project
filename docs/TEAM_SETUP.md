@@ -1,6 +1,6 @@
 # KINOF — คู่มือ Setup สำหรับทีม (Handoff)
 
-> อัปเดต: 10 ก.ย. 2569  
+> อัปเดต: 17 ก.ย. 2569  
 > Repo: https://github.com/Virus260710/Kinof-project  
 > Branch หลักที่พัฒนาอยู่: `cursor/phase0-backend-email-otp`
 
@@ -14,6 +14,7 @@
 React (5173)  →  ASP.NET Core 8 (5106)  →  SQLite (kinof.db)
                       ↓
               Face Service Python (8001)
+              Windows Agent (เครื่องแล็บ)
 ```
 
 | โฟลเดอร์ | คืออะไร |
@@ -21,6 +22,7 @@ React (5173)  →  ASP.NET Core 8 (5106)  →  SQLite (kinof.db)
 | `kinof-app/` | Frontend React + Vite + Tailwind |
 | `backend/Kinof.Api/` | Backend API + Database |
 | `face-service/` | สแกนใบหน้า InsightFace (แยก service) |
+| `windows-agent/` | Agent บนเครื่องแล็บ (heartbeat, ล็อกอิน, บล็อกเว็บ/โปรแกรม) |
 | `docs/` | เอกสารแผน, flow, schema |
 
 ---
@@ -90,7 +92,7 @@ python -m pip install -r requirements.txt
 
 ## 5. รันระบบ (ทุกครั้งที่ dev)
 
-เปิด **3 Terminal** แยกกัน:
+เปิด **4 Terminal** แยกกัน:
 
 ### Terminal 1 — Backend
 
@@ -120,6 +122,19 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
 
 → http://localhost:8001/health ต้องได้ `{"status":"ready"}`
 
+### Terminal 4 — Windows Agent (ต้อง Run as administrator)
+
+ใส่ `Kinof:ApiKey` ใน `windows-agent/appsettings.json` (dev: `dev-agent-key-1`) แล้ว:
+
+```powershell
+cd windows-agent
+dotnet run
+```
+
+→ ล็อกอินบัญชี KINOF บนเครื่องนั้น ที่นั่งจึงเป็น Occupied  
+→ บล็อกเว็บผ่าน hosts และปิดโปรแกรมตามแท็บ Monitor **บล็อกโปรแกรม**  
+รายละเอียด: `windows-agent/README.md` และ `docs/implementation/AGENT.md`
+
 ---
 
 ## 6. บัญชีทดสอบ (Seed)
@@ -132,15 +147,53 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
 
 **Login flow:** กรอก user/pass → ระบบส่ง **OTP 6 หลัก** ทางอีเมล
 
-### OTP ในโหมด Dev (สำคัญ!)
+### ส่งอีเมลจริง (Resend SMTP + user-secrets)
 
-ถ้า SMTP ส่งอีเมลไม่ถึง (ปกติใน dev) → ดู OTP ใน **Terminal Backend**:
+ค่า SMTP จริงอยู่ที่ **dotnet user-secrets** ของ `Kinof.Api` — **ห้ามใส่ API key ใน `appsettings.json` / ห้าม commit**  
+ถ้าใส่ครบแล้ว **อย่า set `Email:Password` ซ้ำ**
+
+| Key | ค่า |
+|-----|-----|
+| `Email:SmtpHost` | `smtp.resend.com` |
+| `Email:SmtpPort` | `587` |
+| `Email:Username` | `resend` |
+| `Email:Password` | Resend API key — user-secrets เท่านั้น |
+| `Email:FromAddress` | ผู้ส่งที่ verify แล้ว |
+
+ครั้งแรก:
+
+```powershell
+cd backend
+dotnet user-secrets set "Email:SmtpHost" "smtp.resend.com" --project .\Kinof.Api\Kinof.Api.csproj
+dotnet user-secrets set "Email:SmtpPort" "587" --project .\Kinof.Api\Kinof.Api.csproj
+dotnet user-secrets set "Email:Username" "resend" --project .\Kinof.Api\Kinof.Api.csproj
+dotnet user-secrets set "Email:Password" "re_xxxxxxxx" --project .\Kinof.Api\Kinof.Api.csproj
+dotnet user-secrets set "Email:FromAddress" "onboarding@resend.dev" --project .\Kinof.Api\Kinof.Api.csproj
+```
+
+รีสตาร์ท Backend หลังเปลี่ยน secrets  
+`onboarding@resend.dev` ส่งได้เฉพาะเมลเจ้าของบัญชี Resend — เมลอื่นต้องใช้โดเมนที่ verify แล้ว  
+ทดสอบ inbox: `dotnet user-secrets set "Seed:StudentEmail" "your-resend-account@gmail.com" --project .\Kinof.Api\Kinof.Api.csproj` แล้วรีสตาร์ท API
+
+ถ้าส่งสำเร็จ หน้า OTP จะไม่โชว์ `devOtp` (`deliveryMode = smtp`)  
+รายละเอียด: `docs/EMAIL_OTP.md`
+
+### OTP ในโหมด Dev เมื่อยังไม่มีรหัส หรือ SMTP ล้ม
+
+ถ้ายังไม่ตั้ง password หรือส่งไม่ถึง → ดู OTP ใน **Terminal Backend**:
+
+```
+Development email fallback: login OTP for xxx@... is 123456
+```
+
+หรือ
 
 ```
 Development email fallback (SMTP send failed): login OTP for xxx@... is 123456
 ```
 
-คำเชิญเพื่อน / Entry OTP ก็ log แบบเดียวกัน
+คำเชิญเพื่อน / Entry OTP / รีเซ็ตรหัส / เชิญแอดมิน ก็ log แบบเดียวกันใน Development  
+**Production ไม่มี fallback นี้** — ส่งไม่สำเร็จจะได้ HTTP 503
 
 ---
 
@@ -152,15 +205,15 @@ Development email fallback (SMTP send failed): login OTP for xxx@... is 123456
 | Login | http://localhost:5173/login |
 | จองห้อง | Sidebar → จองห้องแล็บ |
 | คำเชิญ | Sidebar → คำเชิญ |
-| Kiosk Lab A | http://localhost:5173/kiosk/AB082138-C378-4E1B-B7F3-9043D882252A |
-| Kiosk Lab B | http://localhost:5173/kiosk/F4D1BF2F-2483-476A-B04C-29E6862B6367 |
+| Kiosk Lab | เปิดจาก **จัดการข้อมูล → ห้องแล็บ** คัดลอกลิงก์เครื่องประตู หรือ `http://localhost:5173/kiosk/{roomId}?key=dev-kiosk-key-1` |
+| (คีย์ dev) | `dev-kiosk-key-1` = ห้องแรกตามชื่อ (เช่น Lab A), `dev-kiosk-key-2` = ห้องถัดไป — ครั้งแรกเก็บใน localStorage ของเบราว์เซอร์นั้น |
 
 ---
 
 ## 8. Flow ทดสอบหลัก
 
 ### 8.1 Login + ลงทะเบียนใบหน้า
-1. Login `student` → OTP จาก Terminal Backend
+1. Login `student` → ตอน Development รหัส OTP อยู่หน้าเว็บและ Terminal Backend (ยังไม่ยิง Resend จนกว่าจะขึ้นเครื่องจริง)
 2. ถ้ายังไม่ enroll → `/register/face/scan`
 3. ต้องเปิด Face Service (Terminal 3)
 
@@ -172,7 +225,9 @@ Development email fallback (SMTP send failed): login OTP for xxx@... is 123456
 
 ### 8.3 เข้าห้อง Kiosk
 1. ต้องมี **ตารางเรียน** หรือ **การจอง confirmed** ในช่วงเวลานั้น
-2. Kiosk → **สแกนใบหน้า** หรือ **OTP สำรอง** (ขอจากเมนู รหัสเข้าห้อง)
+2. เปิด Kiosk พร้อมคีย์เครื่องนั้น (`?key=dev-kiosk-key-N` ครั้งแรก หรือคัดลอกลิงก์จากหน้าแอดมิน) — ผู้ใช้ทั่วไปไม่ต้องกรอกคีย์บนจอสแกน
+3. Kiosk → **สแกนใบหน้า** หรือ **OTP สำรอง** (ขอจากเมนู รหัสเข้าห้อง)
+4. ได้แค่สิทธิ์เข้าห้อง **ที่นั่งยังไม่ถูกจอง** จนกว่าจะ login บน Agent
 
 ---
 
@@ -185,8 +240,13 @@ Development email fallback (SMTP send failed): login OTP for xxx@... is 123456
 | `ConnectionStrings:Default` | `kinof.db` | SQLite local |
 | `Frontend:BaseUrl` | `http://localhost:5173` | ลิงก์ในอีเมล |
 | `FaceService:BaseUrl` | `http://localhost:8001` | ต้องรัน Face Service |
-| `Email:*` | SMTP Gmail | dev มัก fallback ไป console |
+| `Email:*` ใน `appsettings.json` | placeholder (`Password` ว่าง) | ค่าจริงจาก user-secrets (Resend) |
+| `Email:SmtpHost` (secrets) | `smtp.resend.com` | ทับค่าใน appsettings |
+| `Email:Username` (secrets) | `resend` | Resend SMTP |
+| `Email:Password` | **อย่าใส่ใน git** | user-secrets หรือ `Email__Password` เท่านั้น |
 | `Jwt:Key` | dev key | **เปลี่ยนใน production** |
+
+รายละเอียด SMTP: `docs/EMAIL_OTP.md`
 
 ### Frontend API URL
 
@@ -205,7 +265,7 @@ VITE_API_URL=http://localhost:5106
 |--------|--------|
 | Port 8001 ถูกใช้แล้ว | `netstat -ano \| findstr :8001` แล้ว `taskkill /PID xxx /F` |
 | Face Service connect ไม่ได้ | ตรวจ Terminal 3 + `http://localhost:8001/health` |
-| OTP ไม่มาอีเมล | ดู log ใน Terminal Backend (dev mode) |
+| OTP ไม่มาอีเมล | ตอน Development ตั้งใจไม่ส่งเมล — ดูรหัสบนหน้า OTP / Terminal Backend |
 | API 404 หลัง pull โค้ดใหม่ | **Restart Backend** |
 | จองค้าง step 3 | Refresh หรือล้าง `sessionStorage` key `kinofBookRoomDraft` |
 | `No module named uvicorn` | รัน `pip install -r requirements.txt` ใน venv |
@@ -229,17 +289,25 @@ print('cleared bookings')
 
 ### ✅ ทำแล้ว
 - Auth (Login/Register/OTP/Reset password)
+- SMTP จริงผ่าน Resend (user-secrets) — Development ถ้าส่งล้มยัง log console ได้
 - ลงทะเบียนใบหน้า + Face Service
 - จองห้อง + เชิญเพื่อน (รอ accept ก่อน confirm)
-- Kiosk OTP + Face scan
-- Admin: ห้อง, ตารางเรียน, Dashboard, Tracking, Monitor
+- Kiosk OTP + Face scan (ตรวจสิทธิ์เข้าห้อง — ไม่จ่ายที่นั่ง)
+- Kiosk device auth (`X-Kiosk-Key` ผูกห้อง · แอดมินสร้าง/เพิกถอน · คีย์ตัวอย่างในโหมด dev)
+- ป้ายจำนวนค้างบน Sidebar (ผู้ใช้: คำเชิญ · แอดมิน: ตรวจสอบการใช้งาน / ศูนย์แก้ไขปัญหา)
+- Admin: ห้อง, ตารางเรียน, Dashboard, Tracking, Monitor, Export (Excel/CSV)
+- คะแนนพฤติกรรม (no-show หักอัตโนมัติ · Agent flagged รอแอดมินตรวจ ดี/แย่)
 - Problem Reports
+- Windows Agent: heartbeat, ล็อกอินเครื่อง, ออกจากระบบ, ซ่อนถาดระบบ
+- บล็อกเว็บบนเครื่องจริง (hosts จากรายการ Monitor)
+- บล็อกโปรแกรมบนเครื่องจริง (ปิด process ตาม `process_name` จาก Monitor)
+- บล็อกเว็บตามหมวด UT1 + รายการโปรแกรมที่อนุญาต + สรุปโปรแกรมที่ไม่รู้จัก
 
-### ❌ ยังไม่ทำ / mock
-- Admin Export (Excel/CSV)
-- Windows Tracking Agent
-- Behavior score
-- Notification badge บน Sidebar
+### ❌ ยังไม่ทำ / ทำบางส่วน
+- ทดสอบเดโมครบรอบบนเครื่องนี้ แล้วรอบตรวจ Opus ก่อนพรีเซนต์
+- เตรียมขึ้นของจริง: HTTPS, CORS โดเมนจริง, Jwt:Key ใหม่, รหัส seed ใหม่, โดเมน Resend ที่ verify แล้ว
+- ติดตั้ง Agent ทีละเครื่อง + Kiosk ที่ประตู (ไม่ใช่ localhost)
+- แต่ละเครื่องตั้ง Resend ใน user-secrets เอง — อย่า commit API key
 
 ---
 
@@ -247,7 +315,10 @@ print('cleared bookings')
 
 | ไฟล์ | เนื้อหา |
 |------|---------|
+| `docs/EMAIL_OTP.md` | Login/Entry OTP + วิธีตั้ง Resend SMTP |
 | `docs/HANDOFF_LATEST.md` | สถานะล่าสุด + API list |
+| `docs/implementation/AGENT.md` | Windows Agent ของจริง |
+| `windows-agent/README.md` | วิธีรัน / ทดสอบ Agent |
 | `docs/AUTH_ADAPTIVE.md` | Flow สแกนหน้า + OTP สำรอง |
 | `docs/DATABASE.md` | Schema ฐานข้อมูล |
 | `docs/FLOWS.md` | User flow 3 กลุ่ม |
@@ -275,8 +346,8 @@ Branch `main` ยังไม่ merge งานล่าสุด — **ใช�
 - [ ] `npm install` ใน kinof-app
 - [ ] `dotnet restore` + `dotnet ef database update`
 - [ ] Setup face-service venv + pip install
-- [ ] รัน 3 Terminal
-- [ ] Login `student` / `Student123!` + OTP จาก console
+- [ ] รัน backend + frontend (Face Service / Agent ตามงาน)
+- [ ] Login `student` / `Student123!` — ถ้าตั้ง SMTP password แล้ว OTP มาที่อีเมล ไม่เช่นนั้นดู console
 - [ ] เปิด http://localhost:5173 ได้
 
 ---

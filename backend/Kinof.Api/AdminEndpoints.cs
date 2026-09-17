@@ -30,6 +30,18 @@ public static class AdminEndpoints
                 ? service.GetAsync(cancellationToken)
                 : Task.FromResult(Results.Forbid()));
 
+        admin.MapPost("/exports", (
+            ExportRequest request,
+            ClaimsPrincipal user,
+            ExportService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = AuthService.GetUserId(user);
+            if (userId is null) return Task.FromResult(Results.Unauthorized());
+            if (!StaffAuth.IsStaff(user)) return Task.FromResult(Results.Forbid());
+            return service.ExportAsync(userId.Value, request, cancellationToken);
+        });
+
         admin.MapGet("/users", (
             ClaimsPrincipal user,
             AdminUserService service,
@@ -155,6 +167,39 @@ public static class AdminEndpoints
             if (userId is null) return Task.FromResult(Results.Unauthorized());
             if (!StaffAuth.IsStaff(user)) return Task.FromResult(Results.Forbid());
             return service.DeleteAsync(userId.Value, roomId, cancellationToken);
+        });
+
+        admin.MapGet("/kiosk-devices", (
+            Guid? roomId,
+            ClaimsPrincipal user,
+            KioskDeviceService service,
+            CancellationToken cancellationToken) =>
+            StaffAuth.IsStaff(user)
+                ? service.ListAsync(roomId, cancellationToken)
+                : Task.FromResult(Results.Forbid()));
+
+        admin.MapPost("/kiosk-devices", (
+            CreateKioskDeviceRequest request,
+            ClaimsPrincipal user,
+            KioskDeviceService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = AuthService.GetUserId(user);
+            if (userId is null) return Task.FromResult(Results.Unauthorized());
+            if (!StaffAuth.IsStaff(user)) return Task.FromResult(Results.Forbid());
+            return service.CreateAsync(userId.Value, request, cancellationToken);
+        });
+
+        admin.MapPost("/kiosk-devices/{deviceId:guid}/revoke", (
+            Guid deviceId,
+            ClaimsPrincipal user,
+            KioskDeviceService service,
+            CancellationToken cancellationToken) =>
+        {
+            var userId = AuthService.GetUserId(user);
+            if (userId is null) return Task.FromResult(Results.Unauthorized());
+            if (!StaffAuth.IsStaff(user)) return Task.FromResult(Results.Forbid());
+            return service.RevokeAsync(userId.Value, deviceId, cancellationToken);
         });
 
         admin.MapGet("/schedules", (

@@ -6,6 +6,11 @@ import { resendEmailOtp, verifyEmailOtp } from "../api/auth";
 import { isStaffAdmin } from "../utils/roles";
 import { GOLD, NAVY } from "../theme";
 
+function visibleDevOtp(deliveryMode, code) {
+  if (deliveryMode === "smtp") return "";
+  return code || "";
+}
+
 export default function OtpVerify({ pendingLogin, onVerified, onBack }) {
   const navigate = useNavigate();
   const [code, setCode] = useState("");
@@ -14,6 +19,7 @@ export default function OtpVerify({ pendingLogin, onVerified, onBack }) {
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState(pendingLogin.deliveryMode);
+  const [devOtp, setDevOtp] = useState(visibleDevOtp(pendingLogin.deliveryMode, pendingLogin.devOtp));
 
   const handleVerify = async (event) => {
     event.preventDefault();
@@ -46,9 +52,12 @@ export default function OtpVerify({ pendingLogin, onVerified, onBack }) {
     try {
       const result = await resendEmailOtp(pendingLogin.userId);
       setDeliveryMode(result.deliveryMode);
+      setDevOtp(visibleDevOtp(result.deliveryMode, result.devOtp));
       setMessage(result.deliveryMode === "smtp"
         ? `ส่ง OTP ใหม่ไปยัง ${result.maskedEmail} แล้ว`
-        : "สร้าง OTP ใหม่แล้ว แต่ยังไม่ได้ส่งเข้าอีเมล");
+        : visibleDevOtp(result.deliveryMode, result.devOtp)
+          ? "สร้าง OTP ใหม่แล้ว — ใช้รหัสด้านล่างหรือดูใน console backend"
+          : "สร้าง OTP ใหม่แล้ว แต่ยังไม่ได้ส่งเข้าอีเมล");
       setCode("");
     } catch (requestError) {
       setError(requestError.message);
@@ -78,12 +87,18 @@ export default function OtpVerify({ pendingLogin, onVerified, onBack }) {
         </p>
         {deliveryMode === "console" && (
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
-            OTP อยู่ในหน้าต่าง CMD ของ backend — ใช้เมื่อยังไม่ตั้ง SMTP หรือส่งอีเมลไม่สำเร็จ (เช่น Resend โดเมนทดสอบส่งได้แค่อีเมลเจ้าของบัญชี)
+            โหมดพัฒนา: ยังไม่ได้ส่งเข้าอีเมล (ยังไม่มี SMTP password หรือ SMTP ส่งไม่สำเร็จ) — ใช้รหัสด้านล่างหรือดูใน console backend
           </p>
         )}
         {deliveryMode === "failed" && (
           <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
             ส่งอีเมลไม่สำเร็จ กรุณาตรวจ SMTP / Resend domain แล้วกดส่ง OTP ใหม่
+          </p>
+        )}
+        {deliveryMode !== "smtp" && devOtp && (
+          <p className="text-sm text-navy-900 bg-white border border-navy-100 rounded-lg p-3 mb-4 text-center">
+            <span className="block text-xs text-gray-500 mb-1">รหัส OTP (โหมดพัฒนา)</span>
+            <span className="font-mono tracking-[0.4em] text-2xl font-semibold">{devOtp}</span>
           </p>
         )}
 
@@ -118,7 +133,7 @@ export default function OtpVerify({ pendingLogin, onVerified, onBack }) {
         >
           {resending ? "กำลังส่ง..." : "ส่ง OTP ใหม่"}
         </button>
-        <p className="text-xs text-gray-400 text-center mt-2">OTP ใช้ได้ 10 นาที และส่งได้ไม่เกิน 3 ครั้งต่อชั่วโมง</p>
+        <p className="text-xs text-gray-400 text-center mt-2">OTP ล็อกอินใช้ได้ 10 นาที ไม่จำกัดจำนวนครั้ง — โควตา 5 ครั้งต่อเดือนใช้กับรหัสฉุกเฉินเข้าห้องเท่านั้น</p>
       </Card>
     </div>
   );

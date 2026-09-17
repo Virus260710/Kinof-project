@@ -22,6 +22,7 @@ erDiagram
     rooms ||--o{ bookings : booked
     rooms ||--o{ access_logs : logged
 
+    rooms ||--o{ kiosk_devices : has
     seats ||--o| agents : has
     seats ||--o{ access_logs : assigned
     seats ||--o{ agent_logs : generates
@@ -201,6 +202,24 @@ Tracking Agent บน PC แต่ละเครื่อง
 
 ---
 
+#### 9b. `kiosk_devices`
+
+เครื่อง Kiosk หน้าประตู — ผูก **ห้อง** ไม่ผูกที่นั่ง (`agents` ผูกที่นั่ง)
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| room_id | UUID FK → rooms | ON DELETE CASCADE |
+| api_key | VARCHAR(255) UNIQUE NOT NULL | แสดงครั้งเดียวตอนสร้าง |
+| label | VARCHAR(100) NULL | เช่น "เครื่องประตู" |
+| revoked_at | TIMESTAMP NULL | เพิกถอนแล้วใช้ไม่ได้ |
+| last_seen_at | TIMESTAMP NULL | ใช้คีย์ล่าสุด |
+| created_at | TIMESTAMP | |
+
+Header ที่ประตู: `X-Kiosk-Key` — คีย์ห้องอื่นใช้ไม่ได้
+
+---
+
 #### 10. `schedules`
 
 ตารางเรียน (กลุ่ม 1)
@@ -273,7 +292,7 @@ Log จาก Tracking Agent
 |--------|------|-------|
 | id | BIGSERIAL PK | |
 | agent_id | UUID FK → agents | |
-| event_type | VARCHAR(50) | process_start, power_boot, web_block... |
+| event_type | VARCHAR(50) | `login`, `logout`, `program`, `website`, `suspicious`, `unknown_program` |
 | data_json | TEXT | |
 | created_at | TIMESTAMP | |
 
@@ -285,13 +304,85 @@ Log จาก Tracking Agent
 |--------|------|-------|
 | id | SERIAL PK | |
 | url_pattern | VARCHAR(255) NOT NULL | |
-| category | VARCHAR(50) | social, gambling, torrent... |
+| category | VARCHAR(50) | หมวด UT1 เช่น `social_networks` / `streaming` / `games` หรือ `social` / `manual` เมื่อใส่เอง |
+| source | VARCHAR(20) | `manual` หรือ `ut1` — นำเข้าหมวดจะตั้ง `ut1` และซิงค์ `category` จากรหัสหมวด |
 | created_by | UUID FK → users NULL | |
 | created_at | TIMESTAMP | |
 
 ---
 
-## Seed Data (Dev)
+#### 16. `program_blacklist`
+
+รายชื่อไฟล์ `.exe` ที่แอดมินห้ามใช้บนเครื่องแล็บ  
+หน้า Monitor ตั้งค่าได้ — Agent ดึงตามรอบ heartbeat แล้วปิด process ที่ตรง `process_name` (ไม่ปิดเครื่อง / ไม่ปิดตัว Agent / ไม่ปิด process ระบบ)
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | SERIAL PK | |
+| process_name | VARCHAR(255) NOT NULL UNIQUE | เช่น `discord.exe` |
+| category | VARCHAR(50) | chat, game, manual... |
+| created_by | UUID FK → users NULL | |
+| created_at | TIMESTAMP | |
+
+---
+
+#### 17. `program_allowlist`
+
+ซอฟต์แวร์ที่ห้องแล็บอนุญาตให้ใช้ (สิบถึงห้าสิบตัว)  
+หน้า Monitor แท็บ **อนุญาตโปรแกรม** ตั้งค่าได้ — Agent ดึงตาม heartbeat เพื่อแยกของที่ไม่รู้จักออกจากคิว Monitor
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | SERIAL PK | |
+| process_name | VARCHAR(255) NOT NULL UNIQUE | เช่น `chrome.exe` |
+| display_name | VARCHAR(120) NULL | ชื่อที่โชว์ในหน้าแอดมิน |
+| category | VARCHAR(50) | browser, office, dev, lab |
+| created_by | UUID FK → users NULL | |
+| created_at | TIMESTAMP | |
+
+---
+
+#### 18. `behavior_penalties`
+
+ประวัติหักคะแนนพฤติกรรม — คะแนนปัจจุบัน = `max(0, 100 - sum(points))`  
+หักอัตโนมัติเมื่อไม่มาตามจอง (`no_show`, ครั้งละ 5)  
+กิจกรรมที่ Agent จับได้ขึ้นคิว `behavior_reviews` ก่อน — แอดมินกดแย่จึงหัก (`flagged`, ครั้งละ 5 ต่อรายการ)
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK → users | |
+| points | INT | คะแนนที่หัก |
+| reason | VARCHAR(500) | ข้อความที่โชว์ในโปรไฟล์ |
+| source | VARCHAR(40) | `no_show` หรือ `flagged` |
+| source_key | VARCHAR(200) UNIQUE | กันหักซ้ำ |
+| created_at | TIMESTAMP | |
+
+---
+
+#### 19. `behavior_reviews`
+
+คิวให้แอดมินตรวจกิจกรรมที่ Agent ทำเครื่องหมายน่าสงสัย — ยังไม่หักคะแนนจนกว่าจะกดแย่
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | UUID PK | |
+| user_id | UUID FK → users NULL | |
+| display_name | VARCHAR(120) | |
+| username | VARCHAR(50) | |
+| room_id / seat_id | UUID NULL | |
+| room_name / seat_label | VARCHAR | |
+| kind | VARCHAR(20) | `website` / `program` / `suspicious` |
+| target | VARCHAR(255) | โดเมน หรือชื่อโปรแกรม หรือข้อความกิจกรรม |
+| activity | VARCHAR(500) | คำอธิบายที่โชว์ใน Monitor |
+| queue_key | VARCHAR(320) | รวมผู้ใช้+ชนิด+เป้าหมาย — unique ตอน `Pending` |
+| occurrence_count | INT | จำนวนครั้งที่เจอซ้ำขณะรอตรวจ |
+| first_seen_at / last_seen_at | TIMESTAMP | |
+| status | VARCHAR(20) | `Pending` / `Cleared` / `Penalized` |
+| reviewed_by | UUID FK → users NULL | |
+| reviewed_at | TIMESTAMP NULL | |
+
+---
 
 ```sql
 -- Admin
@@ -363,7 +454,12 @@ Host=localhost;Database=smartlab;Username=postgres;Password=...
 | bookings | schema only | Phase 3 |
 | access_logs | schema only | Phase 2 Kiosk |
 | agent_logs | schema only | Phase 1 |
-| website_blacklist | ✅ seed | Phase 1 Agent |
+| website_blacklist | ✅ seed + หน้า Monitor + นำเข้าหมวด UT1 | Agent บังคับ hosts แล้ว · `category` ซิงค์จาก UT1 เมื่อนำเข้า |
+| program_blacklist | ✅ seed + หน้า Monitor | Agent ปิด process ที่ตรงชื่อแล้ว |
+| program_allowlist | ✅ seed ซอฟต์แวร์แล็บ + หน้า Monitor | Agent ใช้แยกของที่ไม่รู้จัก |
+| kiosk_devices | ✅ แอดมินสร้าง/เพิกถอน | `X-Kiosk-Key` ผูกห้อง · apiKey ครั้งเดียวตอนสร้าง |
+| behavior_penalties | ✅ หักคะแนน | no-show อัตโนมัติ / flagged หลังแอดมินกดแย่ |
+| behavior_reviews | ✅ คิวตรวจ | Agent flagged รอแอดมิน ดี/แย่ — **ไม่รวม** โปรแกรมที่ไม่รู้จัก |
 
 > **แนะนำ:** สร้าง migration ครบ 15 ตารางตั้งแต่ Phase 0
 

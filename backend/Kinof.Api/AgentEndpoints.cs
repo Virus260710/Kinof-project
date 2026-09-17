@@ -33,6 +33,51 @@ public static class AgentEndpoints
             AgentService service,
             CancellationToken cancellationToken) =>
             service.IngestLogsAsync(ReadKey(httpRequest), request, cancellationToken));
+
+        agent.MapGet("/website-blacklist", (
+            HttpRequest httpRequest,
+            AgentService service,
+            CancellationToken cancellationToken) =>
+            service.GetWebsiteBlacklistAsync(ReadKey(httpRequest), cancellationToken));
+
+        agent.MapGet("/program-blacklist", (
+            HttpRequest httpRequest,
+            AgentService service,
+            CancellationToken cancellationToken) =>
+            service.GetProgramBlacklistAsync(ReadKey(httpRequest), cancellationToken));
+
+        agent.MapGet("/program-allowlist", (
+            HttpRequest httpRequest,
+            AgentService service,
+            CancellationToken cancellationToken) =>
+            service.GetProgramAllowlistAsync(ReadKey(httpRequest), cancellationToken));
+
+        agent.MapPost("/session/login", (
+            AgentSessionLoginRequest? request,
+            HttpRequest httpRequest,
+            AgentService service,
+            CancellationToken cancellationToken) =>
+            service.StartSessionLoginAsync(ReadKey(httpRequest), request, cancellationToken));
+
+        agent.MapPost("/session/verify-otp", (
+            AgentSessionVerifyOtpRequest? request,
+            HttpRequest httpRequest,
+            AgentService service,
+            CancellationToken cancellationToken) =>
+            service.VerifySessionOtpAsync(ReadKey(httpRequest), request, cancellationToken));
+
+        agent.MapPost("/session/resend-otp", (
+            AgentSessionResendOtpRequest? request,
+            HttpRequest httpRequest,
+            AgentService service,
+            CancellationToken cancellationToken) =>
+            service.ResendSessionOtpAsync(ReadKey(httpRequest), request, cancellationToken));
+
+        agent.MapPost("/session/logout", (
+            HttpRequest httpRequest,
+            AgentService service,
+            CancellationToken cancellationToken) =>
+            service.LogoutSessionAsync(ReadKey(httpRequest), cancellationToken));
     }
 
     private static string? ReadKey(HttpRequest request) =>

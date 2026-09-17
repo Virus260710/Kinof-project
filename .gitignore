@@ -17,10 +17,11 @@ build/
 *.db-shm
 *.db-wal
 
-# Environment
+# Environment / local secrets — never commit SMTP passwords or API keys
 .env
 .env.local
 appsettings.Development.json
+appsettings.*.local.json
 
 # IDE
 .vs/
@@ -32,7 +33,7 @@ appsettings.Development.json
 Thumbs.db
 .DS_Store
 
-# Logs
-*.log
+# Runtime data
+backend/Kinof.Api/App_Data/ut1-cache/
 .pytest_cache/
 node_modules/

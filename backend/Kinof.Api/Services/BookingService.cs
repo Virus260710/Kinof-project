@@ -13,6 +13,7 @@ public sealed class BookingService(
     AppDbContext db,
     InvitationService invitationService,
     ScheduleService scheduleService,
+    BehaviorScoreService behaviorScore,
     IEmailSender emailSender,
     IConfiguration configuration,
     ILogger<BookingService> logger)
@@ -47,19 +48,9 @@ public sealed class BookingService(
         if (endTime <= startTime)
             return Results.BadRequest(new { message = "เวลาสิ้นสุดต้องอยู่หลังเวลาเริ่มต้น" });
 
-        var bookedRoomIds = await db.Bookings
-            .AsNoTracking()
-            .Where(x =>
-                RoomBlockingStatuses.Contains(x.Status) &&
-                x.StartTime < endTime &&
-                x.EndTime > startTime)
-            .Select(x => x.RoomId)
-            .Distinct()
-            .ToListAsync(cancellationToken);
-
         var rooms = await db.Rooms
             .AsNoTracking()
-            .Where(x => x.Status == RoomStatus.Open && !bookedRoomIds.Contains(x.Id))
+            .Where(x => x.Status == RoomStatus.Open)
             .OrderBy(x => x.Name)
             .Select(x => new
             {
@@ -75,7 +66,20 @@ public sealed class BookingService(
         {
             if (await scheduleService.RoomHasScheduleOverlapAsync(room.id, startTime, endTime, cancellationToken))
                 continue;
-            available.Add(room);
+
+            var occupied = await OccupiedHeadcountAsync(room.id, startTime, endTime, null, cancellationToken);
+            var remaining = room.capacity - occupied;
+            if (remaining <= 0)
+                continue;
+
+            available.Add(new
+            {
+                room.id,
+                room.name,
+                room.building,
+                room.capacity,
+                remainingSeats = remaining
+            });
         }
 
         return Results.Ok(available);
@@ -250,15 +254,13 @@ public sealed class BookingService(
         if (room is null)
             return Results.NotFound(new { message = "ไม่พบห้องที่เลือก" });
 
-        var hasConflict = await db.Bookings.AnyAsync(
-            x =>
-                x.RoomId == request.RoomId &&
-                RoomBlockingStatuses.Contains(x.Status) &&
-                x.StartTime < request.EndTime &&
-                x.EndTime > request.StartTime,
-            cancellationToken);
-        if (hasConflict)
-            return Results.Conflict(new { message = "ห้องนี้ถูกจองในช่วงเวลานี้แล้ว" });
+        var scoreRemaining = await behaviorScore.RemainingAsync(userId, cancellationToken);
+        if (scoreRemaining < BehaviorScoreService.MinScoreToBook)
+        {
+            return Results.Json(
+                new { message = $"คะแนนพฤติกรรมเหลือ {scoreRemaining}/100 ต้องมีอย่างน้อย {BehaviorScoreService.MinScoreToBook} จึงจองห้องได้" },
+                statusCode: StatusCodes.Status403Forbidden);
+        }
 
         if (await scheduleService.RoomHasScheduleOverlapAsync(request.RoomId, request.StartTime, request.EndTime, cancellationToken))
             return Results.Conflict(new { message = "ห้องนี้มีตารางเรียนในช่วงเวลานี้" });
@@ -277,6 +279,24 @@ public sealed class BookingService(
 
         if (inviteeIds.Length > 0 && invitees.Count == 0)
             return Results.BadRequest(new { message = "ไม่พบผู้ใช้ที่เชิญในระบบ" });
+
+        var partySize = 1 + invitees.Count;
+        var occupied = await OccupiedHeadcountAsync(
+            request.RoomId,
+            request.StartTime,
+            request.EndTime,
+            null,
+            cancellationToken);
+        var remainingSeats = room.Capacity - occupied;
+        if (partySize > remainingSeats)
+        {
+            return Results.Conflict(new
+            {
+                message = remainingSeats <= 0
+                    ? "ห้องนี้เต็มในช่วงเวลานี้แล้ว"
+                    : $"เหลือที่นั่ง {remainingSeats} ที่ ไม่พอสำหรับการจองนี้"
+            });
+        }
 
         var hasInvitees = invitees.Count > 0;
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -329,7 +349,37 @@ public sealed class BookingService(
         await transaction.CommitAsync(cancellationToken);
 
         if (invitationsCreated > 0)
-            await SendGroupInvitationEmailsAsync(userId, invitees, room.Name, booking, cancellationToken);
+        {
+            try
+            {
+                await SendGroupInvitationEmailsAsync(userId, invitees, room.Name, booking, cancellationToken);
+            }
+            catch (EmailDeliveryException exception)
+            {
+                logger.LogError(
+                    exception,
+                    "Group invitation emails failed after booking {BookingId} was saved",
+                    booking.Id);
+                return Results.Json(
+                    new
+                    {
+                        message = "สร้างการจองแล้ว แต่ส่งอีเมลคำเชิญไม่สำเร็จ เพื่อนยังเห็นคำเชิญในแอปได้",
+                        id = booking.Id,
+                        roomId = room.Id,
+                        room = room.Name,
+                        building = room.Building,
+                        startTime = booking.StartTime,
+                        endTime = booking.EndTime,
+                        status = booking.Status.ToString().ToLowerInvariant(),
+                        invitationsRequested = inviteeIds.Length,
+                        invitationsCreated,
+                        invitationsSkipped = Math.Max(0, inviteeIds.Length - invitationsCreated),
+                        awaitingMemberConfirmation = hasInvitees,
+                        deliveryMode = EmailDelivery.FailedMode
+                    },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        }
 
         return Results.Ok(new
         {
@@ -360,6 +410,7 @@ public sealed class BookingService(
         var inviterName = $"{inviter.FirstName} {inviter.LastName}".Trim();
         var appLink = (configuration["Frontend:BaseUrl"] ?? "http://localhost:5173").TrimEnd('/');
 
+        EmailDeliveryException? firstFailure = null;
         foreach (var invitee in invitees)
         {
             try
@@ -378,13 +429,58 @@ public sealed class BookingService(
                     invitee.Email,
                     delivery.Mode);
             }
-            catch (Exception exception)
+            catch (EmailDeliveryException exception)
             {
-                logger.LogWarning(
+                logger.LogError(
                     exception,
                     "Failed to send group invitation email to {InviteeEmail}",
                     invitee.Email);
+                firstFailure ??= exception;
             }
         }
+
+        if (firstFailure is not null)
+            throw firstFailure;
+    }
+
+    private async Task<int> OccupiedHeadcountAsync(
+        Guid roomId,
+        DateTime startTime,
+        DateTime endTime,
+        Guid? exceptBookingId,
+        CancellationToken cancellationToken)
+    {
+        var bookings = await db.Bookings.AsNoTracking()
+            .Where(item =>
+                item.RoomId == roomId &&
+                RoomBlockingStatuses.Contains(item.Status) &&
+                item.StartTime < endTime &&
+                item.EndTime > startTime &&
+                (exceptBookingId == null || item.Id != exceptBookingId))
+            .Select(item => new { item.Id, item.UserId })
+            .ToListAsync(cancellationToken);
+
+        var total = 0;
+        foreach (var booking in bookings)
+            total += await HeadcountForBookingAsync(booking.Id, cancellationToken);
+        return total;
+    }
+
+    private async Task<int> HeadcountForBookingAsync(Guid bookingId, CancellationToken cancellationToken)
+    {
+        var groupId = await db.BookingGroups.AsNoTracking()
+            .Where(group => group.BookingId == bookingId)
+            .Select(group => (Guid?)group.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (groupId is null)
+            return 1;
+
+        var members = await db.GroupMembers.CountAsync(
+            member => member.GroupId == groupId.Value,
+            cancellationToken);
+        var pending = await db.Invitations.CountAsync(
+            invitation => invitation.GroupId == groupId.Value && invitation.Status == InvitationStatus.Pending,
+            cancellationToken);
+        return Math.Max(1, members + pending);
     }
 }

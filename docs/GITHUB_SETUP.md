@@ -35,7 +35,7 @@ Kinof-project/
 │   ├── src/pages/OtpVerify.jsx
 │   ├── src/pages/Register.jsx
 │   ├── src/pages/user/        ← Home, BookRoom (mock), Profile, Help
-│   └── src/pages/admin/       ← Dashboard (mock), Monitor, Export
+│   └── src/pages/admin/       ← Dashboard, Monitor, Export (Excel/CSV จริง)
 └── README.md
 ```
 

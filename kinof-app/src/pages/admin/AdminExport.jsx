@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { CalendarRange, FileSpreadsheet } from "lucide-react";
 import Card from "../../components/Card";
+import Button from "../../components/Button";
 import { NAVY } from "../../theme";
+import { downloadAdminExport } from "../../api/admin";
 import { bangkokDate, getTrackingRooms } from "../../api/tracking";
 
-// TODO(backend): POST /api/exports { report: "log"|"prog"|"web"|"flag", format, roomId, startDate, endDate }
-// should return a file download URL or blob.
 const ROWS = [
   { label: "ประวัติเข้า-ออกระบบ", key: "log" },
   { label: "โปรแกรมที่ถูกใช้งาน", key: "prog" },
@@ -51,6 +51,7 @@ export default function AdminExport({ notify }) {
   const [formats, setFormats] = useState({ log: "Excel", prog: "Excel", web: "Excel", flag: "Excel" });
   const [rooms, setRooms] = useState([]);
   const [roomId, setRoomId] = useState(ALL_ROOMS);
+  const [exportingKey, setExportingKey] = useState(null);
 
   const today = useMemo(() => bangkokDate(), []);
   const presets = useMemo(() => buildPresets(today), [today]);
@@ -82,6 +83,24 @@ export default function AdminExport({ notify }) {
 
   const roomLabel = roomId === ALL_ROOMS ? "ทุกห้อง" : rooms.find((room) => room.id === roomId)?.name ?? "ทุกห้อง";
   const rangeDays = dayCount(startDate, endDate);
+
+  const handleExport = async (row) => {
+    setExportingKey(row.key);
+    try {
+      await downloadAdminExport({
+        report: row.key,
+        format: formats[row.key],
+        roomId,
+        startDate,
+        endDate,
+      });
+      notify(`ส่งออก "${row.label}" (${roomLabel} · ${formatDateLabel(startDate)} - ${formatDateLabel(endDate)}) เป็นไฟล์ ${formats[row.key]} แล้ว`);
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setExportingKey(null);
+    }
+  };
 
   return (
     <div>
@@ -164,18 +183,20 @@ export default function AdminExport({ notify }) {
                   value={formats[r.key]}
                   onChange={(e) => setFormats({ ...formats, [r.key]: e.target.value })}
                   className="text-xs border border-gray-200 rounded-lg px-2 py-1.5"
+                  disabled={exportingKey === r.key}
                 >
                   <option>Excel</option>
                   <option>CSV</option>
-                  <option>PDF</option>
                 </select>
-                <button
-                  onClick={() => notify(`ส่งออก "${r.label}" (${roomLabel} · ${formatDateLabel(startDate)} - ${formatDateLabel(endDate)}) เป็นไฟล์ ${formats[r.key]} แล้ว`)}
-                  className="flex items-center gap-1 text-xs text-white rounded-lg px-3 py-1.5"
-                  style={{ background: NAVY }}
+                <Button
+                  size="sm"
+                  icon={FileSpreadsheet}
+                  iconPosition="left"
+                  disabled={exportingKey !== null}
+                  onClick={() => handleExport(r)}
                 >
-                  <FileSpreadsheet size={13} /> ส่งออก
-                </button>
+                  {exportingKey === r.key ? "กำลังส่งออก..." : "ส่งออก"}
+                </Button>
               </div>
             </div>
           ))}
@@ -184,4 +205,3 @@ export default function AdminExport({ notify }) {
     </div>
   );
 }
-
